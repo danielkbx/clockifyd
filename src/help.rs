@@ -1,0 +1,358 @@
+pub fn render_help(
+    resource: Option<&str>,
+    action: Option<&str>,
+    subaction: Option<&str>,
+) -> String {
+    match (resource, action, subaction) {
+        (None | Some("help"), _, _) => global_help(),
+        (Some("login"), _, _) => {
+            "Usage: cfd login\n\nPrompt for the Clockify API key and optionally store a default workspace, default project, and default rounding.".into()
+        }
+        (Some("logout"), _, _) => "Usage: cfd logout\n\nRemove the stored config.".into(),
+        (Some("whoami"), _, _) => "Usage: cfd whoami\n\nShow the current user.".into(),
+        (Some("workspace"), _, _) => workspace_help(),
+        (Some("config"), _, _) => config_help(),
+        (Some("project"), _, _) => project_help(),
+        (Some("client"), _, _) => client_help(),
+        (Some("tag"), _, _) => tag_help(),
+        (Some("task"), _, _) => task_help(),
+        (Some("entry"), Some("text"), _) => entry_text_help(),
+        (Some("entry"), _, _) => entry_help(),
+        (Some("timer"), _, _) => timer_help(),
+        (Some(other), _, _) => {
+            format!("Unknown command: {other}\nRun `cfd help` for a list of commands.")
+        }
+    }
+}
+
+fn global_help() -> String {
+    "cfd - Clockify CLI
+
+Usage: cfd <command> [options]
+
+Commands:
+  help                      Show help
+  login                     Interactive login
+  logout                    Remove stored config
+  whoami                    Show current user
+
+  workspace list            List workspaces
+  workspace get <id>        Get workspace details
+
+  config                    Show stored config
+  config interactive        Interactively update stored defaults
+  config set workspace <id>
+                            Store default workspace
+  config get workspace
+                            Show stored workspace
+  config unset workspace
+                            Remove stored workspace
+  config set project <id>
+                            Store default project
+  config get project
+                            Show stored project
+  config unset project
+                            Remove stored project
+  config set rounding <off|1m|5m|10m|15m>
+                            Store default rounding
+  config get rounding
+                            Show stored rounding
+  config unset rounding
+                            Remove stored rounding
+
+  project list              List projects
+  project get <id>          Get project details
+  client list               List clients
+  client get <id>           Get client details
+  tag list                  List tags
+  tag get <id>              Get tag details
+  task list --project <id>  List tasks
+  task get <project-id> <task-id>
+                            Get task details
+  task create --project <id> --name <text>
+                            Create task
+
+  entry list [filters]      List time entries
+  entry get <id>            Get time entry
+  entry text list --project <id>
+                            List known entry texts
+  entry add [fields]        Create time entry
+  entry update <id> [fields]
+                            Update time entry
+  entry delete <id> [-y]    Delete time entry
+
+  timer current             Show running timer
+  timer start [fields]      Start timer
+  timer stop [--end <iso>] [-y]
+                            Stop timer
+
+Global flags:
+  --format text|raw         Output format (default: text)
+  --no-meta                 Suppress metadata in text output
+  --workspace <id>          Override configured workspace
+  --no-rounding             Disable configured rounding for one command
+  -y                        Skip confirmation prompts
+
+Run `cfd help <command>` or `cfd <command> help` for command help."
+        .into()
+}
+
+fn workspace_help() -> String {
+    "Usage:
+  cfd workspace list [--format json] [--no-meta] [--columns <list>]
+  cfd workspace get <id> [--format json] [--no-meta]
+
+Available columns:
+  id    Workspace ID
+  name  Workspace name
+
+Default text columns:
+  id,name
+
+Constraints:
+  `--columns` requires a comma-separated list
+  `--columns` cannot be combined with `--format`
+
+Example:
+  cfd workspace list --columns id,name"
+        .into()
+}
+
+fn config_help() -> String {
+    "Usage:
+  cfd config
+  cfd config interactive
+  cfd config set workspace <id>
+  cfd config get workspace
+  cfd config unset workspace
+  cfd config set project <id>
+  cfd config get project
+  cfd config unset project
+  cfd config set rounding <off|1m|5m|10m|15m>
+  cfd config get rounding
+  cfd config unset rounding
+
+Show the full stored config, or manage stored CLI settings."
+        .into()
+}
+
+fn project_help() -> String {
+    "Usage:
+  cfd project list [--format json] [--no-meta] [--columns <list>]
+  cfd project get <id> [--format json] [--no-meta]
+
+Available columns:
+  id             Project ID
+  name           Project name
+  client         Client ID
+  workspaceId    Workspace ID
+  workspaceName  Workspace name
+
+Default text columns:
+  id,name
+
+Constraints:
+  `--columns` requires a comma-separated list
+  `--columns` cannot be combined with `--format`
+
+Example:
+  cfd project list --columns id,name,client,workspaceId,workspaceName"
+        .into()
+}
+
+fn client_help() -> String {
+    "Usage:
+  cfd client list [--format json] [--no-meta] [--columns <list>]
+  cfd client get <id> [--format json] [--no-meta]
+
+Available columns:
+  id    Client ID
+  name  Client name
+
+Default text columns:
+  id,name
+
+Constraints:
+  `--columns` requires a comma-separated list
+  `--columns` cannot be combined with `--format`
+
+Example:
+  cfd client list --columns id,name"
+        .into()
+}
+
+fn tag_help() -> String {
+    "Usage:
+  cfd tag list [--format json] [--no-meta] [--columns <list>]
+  cfd tag get <id> [--format json] [--no-meta]
+
+Available columns:
+  id    Tag ID
+  name  Tag name
+
+Default text columns:
+  id,name
+
+Constraints:
+  `--columns` requires a comma-separated list
+  `--columns` cannot be combined with `--format`
+
+Example:
+  cfd tag list --columns id,name"
+        .into()
+}
+
+fn task_help() -> String {
+    "Usage:
+  cfd task list --project <id> [--format json] [--no-meta] [--columns <list>]
+  cfd task get <project-id> <task-id> [--format json] [--no-meta]
+  cfd task create --project <id> --name <text>
+
+Available columns:
+  id       Task ID
+  name     Task name
+  project  Project ID
+
+Default text columns:
+  id,name
+
+Constraints:
+  `--columns` requires a comma-separated list
+  `--columns` cannot be combined with `--format`
+
+Example:
+  cfd task list --project <id> --columns id,name,project
+
+Create prints only the created task ID on stdout."
+        .into()
+}
+
+fn entry_help() -> String {
+    "Usage:
+  cfd entry list [--start <iso|today|yesterday>] [--end <iso|today|yesterday>] [--project <id>] [--task <id>] [--tag <id>...] [--text <value>] [--columns <list>]
+  cfd entry get <id>
+  cfd entry text list --project <id> [--format json] [--no-meta]
+  cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
+  cfd entry update <id> [fields...] [--no-rounding]
+  cfd entry delete <id> [-y]
+
+Date keywords `today` and `yesterday` are resolved in the local process timezone.
+`--columns` applies to text output for `entry list` and `entry get`.
+It switches to a column view with one row per entry.
+Available columns:
+  id           Entry ID
+  start        Start timestamp
+  end          End timestamp or `-` for running entries
+  duration     ISO 8601 duration from Clockify, if present
+  description  Entry description
+  projectId    Project ID
+  projectName  Project name
+  task         Task ID
+  tags         Comma-separated tag IDs
+
+Default text columns:
+  id,start,end,duration,description,projectId,projectName,task,tags
+
+Constraints:
+  `--columns` requires a comma-separated list
+  `--columns` cannot be combined with `--format`
+
+Example:
+  cfd entry list --start today --end today --columns start,end,description"
+        .into()
+}
+
+fn entry_text_help() -> String {
+    "Usage:
+  cfd entry text list --project <id> [--format json] [--no-meta] [--columns <list>]
+
+List previously used entry descriptions for one project.
+
+Available columns:
+  text       Entry description
+  lastUsed   Most recent usage timestamp
+  count      Number of uses
+
+Default text columns:
+  text,lastUsed,count
+
+Constraints:
+  `--columns` requires a comma-separated list
+  `--columns` cannot be combined with `--format`
+
+Example:
+  cfd entry text list --project <id> --columns text,lastUsed"
+        .into()
+}
+
+fn timer_help() -> String {
+    "Usage:
+  cfd timer current [--format json] [--no-meta]
+  cfd timer start [fields...] [--project <id>] [--no-rounding]
+  cfd timer stop [--end <iso>] [--no-rounding] [-y]"
+        .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_help;
+
+    fn assert_columns_help(help: &str, example: &str) {
+        assert!(help.contains("Available columns:"));
+        assert!(help.contains("Default text columns:"));
+        assert!(help.contains("cannot be combined with `--format`"));
+        assert!(help.contains(example));
+    }
+
+    #[test]
+    fn renders_entry_help() {
+        let help = render_help(Some("entry"), None, None);
+        assert!(help.contains("cfd entry list"));
+        assert!(help.contains("today|yesterday"));
+        assert!(help.contains("id,start,end,duration,description,projectId,projectName,task,tags"));
+        assert!(help.contains("one row per entry"));
+        assert_columns_help(&help, "--columns start,end,description");
+    }
+
+    #[test]
+    fn renders_entry_text_help() {
+        let help = render_help(Some("entry"), Some("text"), Some("list"));
+        assert!(help.contains("cfd entry text list"));
+        assert_columns_help(&help, "--columns text,lastUsed");
+    }
+
+    #[test]
+    fn renders_workspace_help_with_columns() {
+        let help = render_help(Some("workspace"), None, None);
+        assert!(help.contains("cfd workspace list"));
+        assert_columns_help(&help, "--columns id,name");
+    }
+
+    #[test]
+    fn renders_project_help_with_columns() {
+        let help = render_help(Some("project"), None, None);
+        assert!(help.contains("cfd project list"));
+        assert_columns_help(&help, "--columns id,name,client");
+    }
+
+    #[test]
+    fn renders_client_help_with_columns() {
+        let help = render_help(Some("client"), None, None);
+        assert!(help.contains("cfd client list"));
+        assert_columns_help(&help, "--columns id,name");
+    }
+
+    #[test]
+    fn renders_tag_help_with_columns() {
+        let help = render_help(Some("tag"), None, None);
+        assert!(help.contains("cfd tag list"));
+        assert_columns_help(&help, "--columns id,name");
+    }
+
+    #[test]
+    fn renders_task_help_with_columns() {
+        let help = render_help(Some("task"), None, None);
+        assert!(help.contains("cfd task list"));
+        assert_columns_help(&help, "--columns id,name,project");
+    }
+}
