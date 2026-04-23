@@ -4,8 +4,10 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 pub fn bin() -> Command {
     Command::new(env!("CARGO_BIN_EXE_cfd"))
@@ -50,19 +52,35 @@ impl MockResponse {
 pub struct TestServer {
     base_url: String,
     requests: Arc<Mutex<Vec<RecordedRequest>>>,
+    shutdown: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
 
 impl TestServer {
     pub fn spawn(responses: Vec<MockResponse>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let request_store = Arc::clone(&requests);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let shutdown_flag = Arc::clone(&shutdown);
 
         let handle = thread::spawn(move || {
             for response in responses {
-                let (mut stream, _) = listener.accept().unwrap();
+                let (mut stream, _) = loop {
+                    match listener.accept() {
+                        Ok(connection) => break connection,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            if shutdown_flag.load(Ordering::Relaxed) {
+                                return;
+                            }
+                            thread::sleep(Duration::from_millis(10));
+                        }
+                        Err(error) => panic!("test server accept failed: {error}"),
+                    }
+                };
+                stream.set_nonblocking(false).unwrap();
                 let request = read_request(&mut stream);
                 request_store.lock().unwrap().push(request);
                 write_response(&mut stream, &response);
@@ -72,6 +90,7 @@ impl TestServer {
         Self {
             base_url: format!("http://{address}/api/v1"),
             requests,
+            shutdown,
             handle: Some(handle),
         }
     }
@@ -87,6 +106,7 @@ impl TestServer {
 
 impl Drop for TestServer {
     fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Relaxed);
         if let Some(handle) = self.handle.take() {
             handle.join().unwrap();
         }
