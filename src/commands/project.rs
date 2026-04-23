@@ -29,7 +29,8 @@ pub fn execute<T: HttpTransport>(
                 .first()
                 .ok_or_else(|| CfdError::message("usage: cfd project get <id>"))?;
             let project = client.get_project(workspace_id, project_id)?;
-            let workspace_names = load_workspace_names_for_projects(client, &[project.clone()])?;
+            let workspace_names =
+                load_workspace_names_for_projects(client, std::slice::from_ref(&project))?;
             print_project(&project, &workspace_names, &args.output)
         }
         _ => Err(CfdError::message("usage: cfd project <list|get>")),

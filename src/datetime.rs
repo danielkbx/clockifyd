@@ -96,34 +96,42 @@ fn round_datetime(datetime: DateTime<Utc>, mode: RoundingMode) -> DateTime<Utc> 
 
 #[cfg(test)]
 mod tests {
-    use chrono::{FixedOffset, TimeZone};
+    use chrono::{Datelike, LocalResult, TimeZone};
 
     use super::*;
 
+    fn local_midnight_utc(year: i32, month: u32, day: u32) -> String {
+        match Local.with_ymd_and_hms(year, month, day, 0, 0, 0) {
+            LocalResult::Single(value) => value.with_timezone(&Utc).to_rfc3339(),
+            _ => panic!("failed to resolve local midnight for test"),
+        }
+    }
+
     #[test]
     fn resolves_today_for_start() {
-        let now = FixedOffset::east_opt(2 * 3600)
-            .unwrap()
-            .with_ymd_and_hms(2026, 4, 23, 15, 30, 0)
-            .unwrap()
-            .with_timezone(&Local);
+        let now = match Local.with_ymd_and_hms(2026, 4, 23, 15, 30, 0) {
+            LocalResult::Single(value) => value,
+            _ => panic!("failed to resolve local test time"),
+        };
 
         let result = resolve_list_datetime_at("start", "today", now).unwrap();
 
-        assert_eq!(result, "2026-04-22T22:00:00+00:00");
+        assert_eq!(result, local_midnight_utc(2026, 4, 23));
     }
 
     #[test]
     fn resolves_yesterday_for_end() {
-        let now = FixedOffset::east_opt(2 * 3600)
-            .unwrap()
-            .with_ymd_and_hms(2026, 4, 23, 15, 30, 0)
-            .unwrap()
-            .with_timezone(&Local);
+        let now = match Local.with_ymd_and_hms(2026, 4, 23, 15, 30, 0) {
+            LocalResult::Single(value) => value,
+            _ => panic!("failed to resolve local test time"),
+        };
 
         let result = resolve_list_datetime_at("end", "yesterday", now).unwrap();
 
-        assert_eq!(result, "2026-04-22T22:00:00+00:00");
+        assert_eq!(
+            result,
+            local_midnight_utc(now.year(), now.month(), now.day())
+        );
     }
 
     #[test]
