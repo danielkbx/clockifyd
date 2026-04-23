@@ -113,21 +113,12 @@ jobs:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          export TOKEN="$(printf '%s' "${HOMEBREW_TAP_TOKEN}" | tr -d '\r\n')"
           sed -e "s|{{VERSION}}|${VERSION}|g" \
               -e "s|{{SHA256_SOURCE}}|${{ steps.sha.outputs.source }}|g" \
               Formula/cfd.rb > cfd.rb
 
           cd "$(mktemp -d)"
-          cat > askpass.sh <<'EOF'
-          #!/usr/bin/env bash
-          case "$1" in
-            *Username*) echo "x-access-token" ;;
-            *Password*) echo "${TOKEN}" ;;
-          esac
-          EOF
-          chmod +x askpass.sh
-          GIT_ASKPASS="$PWD/askpass.sh" git clone --depth 1 "https://github.com/danielkbx/homebrew-tap.git" .
+          git clone --depth 1 "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/danielkbx/homebrew-tap.git" .
           mkdir -p Formula
           cp "${GITHUB_WORKSPACE}/cfd.rb" Formula/cfd.rb
           git config user.name "github-actions[bot]"
