@@ -118,7 +118,9 @@ jobs:
               Formula/cfd.rb > cfd.rb
 
           cd "$(mktemp -d)"
-          git clone --depth 1 "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/danielkbx/homebrew-tap.git" .
+          AUTH_HEADER="$(printf 'x-access-token:%s' "${HOMEBREW_TAP_TOKEN}" | base64 -w 0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${AUTH_HEADER}" \
+            clone --depth 1 "https://github.com/danielkbx/homebrew-tap.git" .
           mkdir -p Formula
           cp "${GITHUB_WORKSPACE}/cfd.rb" Formula/cfd.rb
           git config user.name "github-actions[bot]"
