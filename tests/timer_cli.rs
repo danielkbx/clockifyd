@@ -105,10 +105,8 @@ fn timer_stop_requires_running_timer() {
 
 #[test]
 fn timer_stop_supports_text_json_and_no_meta() {
-    let running =
-        r#"[{"id":"e1","workspaceId":"w1","userId":"u1","projectId":"p1","description":"Run","timeInterval":{"start":"2026-04-23T09:00:00Z"}}]"#;
-    let stopped =
-        r#"{"id":"e1","workspaceId":"w1","userId":"u1","projectId":"p1","description":"Run","timeInterval":{"start":"2026-04-23T09:00:00Z","end":"2026-04-23T10:02:03Z"}}"#;
+    let running = r#"[{"id":"e1","workspaceId":"w1","userId":"u1","projectId":"p1","description":"Run","timeInterval":{"start":"2026-04-23T09:00:00Z"}}]"#;
+    let stopped = r#"{"id":"e1","workspaceId":"w1","userId":"u1","projectId":"p1","description":"Run","timeInterval":{"start":"2026-04-23T09:00:00Z","end":"2026-04-23T10:02:03Z"}}"#;
     let project = r#"{"id":"p1","name":"Project One","workspaceId":"w1"}"#;
     let server = TestServer::spawn(vec![
         MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
@@ -145,7 +143,14 @@ fn timer_stop_supports_text_json_and_no_meta() {
     assert!(text_stdout.contains("\ndescription: Run\n"));
 
     let json = bin()
-        .args(["timer", "stop", "--end", "2026-04-23T10:02:03Z", "--format", "json"])
+        .args([
+            "timer",
+            "stop",
+            "--end",
+            "2026-04-23T10:02:03Z",
+            "--format",
+            "json",
+        ])
         .env("CLOCKIFY_API_KEY", "secret")
         .env("CFD_WORKSPACE", "w1")
         .env("CFD_BASE_URL", server.base_url())
@@ -156,7 +161,13 @@ fn timer_stop_supports_text_json_and_no_meta() {
     assert!(stdout(&json).contains("\"end\": \"2026-04-23T10:02:03Z\""));
 
     let no_meta = bin()
-        .args(["timer", "stop", "--end", "2026-04-23T10:02:03Z", "--no-meta"])
+        .args([
+            "timer",
+            "stop",
+            "--end",
+            "2026-04-23T10:02:03Z",
+            "--no-meta",
+        ])
         .env("CLOCKIFY_API_KEY", "secret")
         .env("CFD_WORKSPACE", "w1")
         .env("CFD_BASE_URL", server.base_url())

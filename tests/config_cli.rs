@@ -199,7 +199,12 @@ fn config_interactive_reuses_api_key_and_updates_defaults() {
         .spawn()
         .unwrap();
 
-    child.stdin.as_mut().unwrap().write_all(b"1\n2\n5\n").unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"1\n2\n5\n")
+        .unwrap();
 
     let output = child.wait_with_output().unwrap();
 

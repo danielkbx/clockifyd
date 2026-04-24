@@ -42,7 +42,10 @@ fn project_list_supports_text_json_and_no_meta() {
         .output()
         .unwrap();
     assert!(text.status.success());
-    assert_eq!(stdout(&text), "id: p1\nname: Clockify CLI\nworkspaceName: Engineering\n");
+    assert_eq!(
+        stdout(&text),
+        "id: p1\nname: Clockify CLI\nworkspaceName: Engineering\n"
+    );
 
     let json = bin()
         .args(["project", "list", "--format", "json"])
@@ -62,7 +65,10 @@ fn project_list_supports_text_json_and_no_meta() {
         .output()
         .unwrap();
     assert!(no_meta.status.success());
-    assert_eq!(stdout(&no_meta), "name: Clockify CLI\nworkspaceName: Engineering\n");
+    assert_eq!(
+        stdout(&no_meta),
+        "name: Clockify CLI\nworkspaceName: Engineering\n"
+    );
 }
 
 #[test]
@@ -107,7 +113,9 @@ fn tag_get_uses_workspace_override_flag() {
 #[test]
 fn metadata_lists_support_columns_and_validation() {
     let project_server = TestServer::spawn(vec![
-        MockResponse::ok(r#"[{"id":"p1","name":"Clockify CLI","clientId":"c1","workspaceId":"w1"}]"#),
+        MockResponse::ok(
+            r#"[{"id":"p1","name":"Clockify CLI","clientId":"c1","workspaceId":"w1"}]"#,
+        ),
         MockResponse::ok(r#"[{"id":"w1","name":"Engineering"}]"#),
     ]);
     let project = bin()

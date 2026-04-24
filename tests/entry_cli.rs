@@ -215,9 +215,8 @@ fn entry_columns_requires_value_and_rejects_format_combo() {
         .output()
         .unwrap();
     assert!(!missing.status.success());
-    assert!(stderr(&missing).contains(
-        "--columns <id,start,end,duration,description,projectId,projectName,...>"
-    ));
+    assert!(stderr(&missing)
+        .contains("--columns <id,start,end,duration,description,projectId,projectName,...>"));
 
     let conflict = bin()
         .args([
@@ -311,7 +310,10 @@ fn entry_columns_support_project_id_and_name() {
         .unwrap();
 
     assert!(output.status.success());
-    assert_eq!(stdout(&output), "2026-04-23T09:00:00Z\t1h\tp1\tProject One\n");
+    assert_eq!(
+        stdout(&output),
+        "2026-04-23T09:00:00Z\t1h\tp1\tProject One\n"
+    );
 }
 
 #[test]
@@ -390,6 +392,9 @@ fn entry_update_excludes_its_own_id_from_overlap_check() {
     assert!(!stderr(&output).contains("Continue despite overlap?"));
 
     let requests = server.requests();
-    assert_eq!(requests[1].path, "/api/v1/workspaces/w1/user/u1/time-entries");
+    assert_eq!(
+        requests[1].path,
+        "/api/v1/workspaces/w1/user/u1/time-entries"
+    );
     assert_eq!(requests[2].path, "/api/v1/workspaces/w1/time-entries/e1");
 }

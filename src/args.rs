@@ -2,6 +2,21 @@ use std::collections::HashMap;
 
 use crate::format::{OutputFormat, OutputOptions};
 
+pub(crate) const VALUE_FLAGS: &[&str] = &[
+    "format",
+    "workspace",
+    "columns",
+    "project",
+    "start",
+    "end",
+    "text",
+    "task",
+    "tag",
+    "duration",
+    "description",
+    "name",
+];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedArgs {
     pub resource: Option<String>,
@@ -67,22 +82,8 @@ pub fn parse_args(argv: &[String]) -> ParsedArgs {
     }
 }
 
-fn takes_value(flag: &str) -> bool {
-    matches!(
-        flag,
-        "format"
-            | "workspace"
-            | "columns"
-            | "project"
-            | "start"
-            | "end"
-            | "text"
-            | "task"
-            | "tag"
-            | "duration"
-            | "description"
-            | "name"
-    )
+pub(crate) fn takes_value(flag: &str) -> bool {
+    VALUE_FLAGS.contains(&flag)
 }
 
 fn output_options(flags: &HashMap<String, String>) -> OutputOptions {
@@ -186,5 +187,21 @@ mod tests {
             parsed.flags.get("no-meta").map(String::as_str),
             Some("true")
         );
+    }
+
+    #[test]
+    fn parser_value_flags_are_represented_in_cli_spec() {
+        let spec_options = crate::cli_spec::cli_spec().option_long_names();
+
+        for flag in VALUE_FLAGS {
+            assert!(
+                takes_value(flag),
+                "VALUE_FLAGS should stay aligned with takes_value: {flag}"
+            );
+            assert!(
+                spec_options.contains(flag),
+                "value-taking parser flag is missing from cli_spec: {flag}"
+            );
+        }
     }
 }

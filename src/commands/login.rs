@@ -19,13 +19,7 @@ pub fn execute(args: &ParsedArgs) -> Result<(), CfdError> {
     let api_key = prompt_api_key(&mut reader, &mut writer)?;
     let client = ClockifyClient::new(api_key.clone(), UreqTransport);
 
-    run_setup_with_io(
-        &mut reader,
-        &mut writer,
-        &client,
-        &api_key,
-        "Saved login.",
-    )
+    run_setup_with_io(&mut reader, &mut writer, &client, &api_key, "Saved login.")
 }
 
 pub(crate) fn run_setup_with_io<R, W, T>(
@@ -50,7 +44,9 @@ where
     )?;
     let project = match workspace.as_ref() {
         Some(workspace) => {
-            let projects = client.list_projects(&workspace.id).map_err(map_login_error)?;
+            let projects = client
+                .list_projects(&workspace.id)
+                .map_err(map_login_error)?;
             select_default_project(
                 &projects,
                 existing_config.project.as_deref(),
@@ -136,8 +132,7 @@ fn select_default_workspace(
         .map(|index| index + 1)
         .unwrap_or(0);
     let prompt = format!("Default workspace [{default_index}]: ");
-    let selection =
-        select_index_with_io(&prompt, workspaces.len(), default_index, reader, writer)?;
+    let selection = select_index_with_io(&prompt, workspaces.len(), default_index, reader, writer)?;
     if selection == 0 {
         Ok(None)
     } else {
@@ -152,7 +147,10 @@ fn select_default_project(
     writer: &mut dyn Write,
 ) -> Result<Option<Project>, CfdError> {
     if projects.is_empty() {
-        writeln!(writer, "No projects available; default project set to none.")?;
+        writeln!(
+            writer,
+            "No projects available; default project set to none."
+        )?;
         return Ok(None);
     }
 
@@ -168,8 +166,7 @@ fn select_default_project(
         .map(|index| index + 1)
         .unwrap_or(0);
     let prompt = format!("Default project [{default_index}]: ");
-    let selection =
-        select_index_with_io(&prompt, projects.len(), default_index, reader, writer)?;
+    let selection = select_index_with_io(&prompt, projects.len(), default_index, reader, writer)?;
     if selection == 0 {
         Ok(None)
     } else {
@@ -202,8 +199,7 @@ fn select_default_rounding(
         .map(|index| index + 1)
         .unwrap_or(0);
     let prompt = format!("Default rounding [{default_index}]: ");
-    let selection =
-        select_index_with_io(&prompt, options.len(), default_index, reader, writer)?;
+    let selection = select_index_with_io(&prompt, options.len(), default_index, reader, writer)?;
     if selection == 0 {
         Ok(None)
     } else {

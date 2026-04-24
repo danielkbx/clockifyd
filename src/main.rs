@@ -1,6 +1,8 @@
 mod args;
+mod cli_spec;
 mod client;
 mod commands;
+mod completion;
 mod config;
 mod datetime;
 mod duration;
@@ -66,6 +68,21 @@ fn run() -> Result<(), error::CfdError> {
     let resource = args.resource.as_deref().unwrap_or_default();
     let action = args.action.as_deref();
     let subaction = args.subaction.as_deref();
+
+    if let ("completion", Some(shell), None) = (resource, action, subaction) {
+        if !args.positional.is_empty() {
+            return Err(error::CfdError::message(format!(
+                "unknown command: cfd completion {shell} {}",
+                args.positional.join(" ")
+            )));
+        }
+        let script = completion::render_completion(shell, &cli_spec::cli_spec())?;
+        print!("{script}");
+        if !script.ends_with('\n') {
+            println!();
+        }
+        return Ok(());
+    }
 
     if !is_known_command(resource, action, subaction) {
         return Err(error::CfdError::message(format!(
@@ -158,7 +175,11 @@ fn is_known_command(resource: &str, action: Option<&str>, subaction: Option<&str
             | ("whoami", None, None)
             | ("workspace", Some("list" | "get"), None)
             | ("config", None, None)
-            | ("config", Some("interactive" | "set" | "get" | "unset"), None)
+            | (
+                "config",
+                Some("interactive" | "set" | "get" | "unset"),
+                None
+            )
             | ("project", Some("list" | "get"), None)
             | ("client", Some("list" | "get"), None)
             | ("tag", Some("list" | "get"), None)
@@ -170,12 +191,25 @@ fn is_known_command(resource: &str, action: Option<&str>, subaction: Option<&str
             )
             | ("entry", Some("text"), Some("list"))
             | ("timer", Some("current" | "start" | "stop"), None)
+            | ("completion", Some("bash" | "zsh" | "fish"), None)
     )
 }
 
 #[cfg(test)]
-mod tests {
+mod main {
     use super::is_known_command;
+
+    fn router_parts<'a>(path: &'a [&'a str]) -> (&'a str, Option<&'a str>, Option<&'a str>) {
+        let resource = path[0];
+        let action = path.get(1).copied();
+        let subaction = if matches!((resource, action), ("entry", Some("text"))) {
+            path.get(2).copied()
+        } else {
+            None
+        };
+
+        (resource, action, subaction)
+    }
 
     #[test]
     fn known_commands_cover_entry_text_branch() {
@@ -190,5 +224,37 @@ mod tests {
         assert!(!is_known_command("workspace", None, None));
         assert!(!is_known_command("timer", Some("pause"), None));
         assert!(!is_known_command("entry", Some("text"), Some("show")));
+    }
+
+    #[test]
+    fn cli_spec_routable_command_paths_are_known_commands() {
+        let spec = crate::cli_spec::cli_spec();
+
+        for path in spec.command_paths() {
+            if matches!(path.first().copied(), Some("help")) {
+                continue;
+            }
+
+            let (resource, action, subaction) = router_parts(&path);
+            assert!(
+                is_known_command(resource, action, subaction),
+                "cli_spec command path is not accepted by router: {}",
+                path.join(" ")
+            );
+        }
+    }
+
+    #[test]
+    fn completion_shell_paths_are_known_commands() {
+        for shell in crate::cli_spec::COMPLETION_SHELLS {
+            assert!(is_known_command("completion", Some(shell), None));
+        }
+    }
+
+    #[test]
+    fn invalid_completion_shell_path_is_rejected() {
+        assert!(!is_known_command("completion", None, None));
+        assert!(!is_known_command("completion", Some("powershell"), None));
+        assert!(!is_known_command("completion", Some("bash"), Some("extra")));
     }
 }

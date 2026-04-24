@@ -907,9 +907,8 @@ mod tests {
         let error = parse_entry_columns(Some("true")).unwrap_err().to_string();
 
         assert!(error.contains("usage: cfd entry <list|get>"));
-        assert!(error.contains(
-            "--columns <id,start,end,duration,description,projectId,projectName,...>"
-        ));
+        assert!(error
+            .contains("--columns <id,start,end,duration,description,projectId,projectName,...>"));
     }
 
     #[test]

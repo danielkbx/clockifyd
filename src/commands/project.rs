@@ -55,7 +55,8 @@ fn print_projects(
                             .map(|project| {
                                 format_project_text(
                                     project,
-                                    workspace_names.get(project.workspace_id.as_deref().unwrap_or("")),
+                                    workspace_names
+                                        .get(project.workspace_id.as_deref().unwrap_or("")),
                                     output,
                                 )
                             })
@@ -63,7 +64,10 @@ fn print_projects(
                     )
                 );
             } else {
-                println!("{}", format_project_table(projects, workspace_names, columns));
+                println!(
+                    "{}",
+                    format_project_table(projects, workspace_names, columns)
+                );
             }
         }
     }
@@ -299,8 +303,7 @@ mod tests {
 
     #[test]
     fn project_columns_parse_and_render_missing_optionals() {
-        let columns =
-            parse_project_columns(Some("id,client,workspaceId,workspaceName")).unwrap();
+        let columns = parse_project_columns(Some("id,client,workspaceId,workspaceName")).unwrap();
         let rendered = format_project_table(
             &[Project {
                 id: "p1".into(),

@@ -19,6 +19,7 @@ pub fn render_help(
         (Some("entry"), Some("text"), _) => entry_text_help(),
         (Some("entry"), _, _) => entry_help(),
         (Some("timer"), _, _) => timer_help(),
+        (Some("completion"), _, _) => completion_help(),
         (Some(other), _, _) => {
             format!("Unknown command: {other}\nRun `cfd help` for a list of commands.")
         }
@@ -32,6 +33,7 @@ Usage: cfd <command> [options]
 
 Commands:
   help                      Show help
+  --version                 Show version
   login                     Interactive login
   logout                    Remove stored config
   whoami                    Show current user
@@ -74,7 +76,7 @@ Commands:
 
   entry list [filters]      List time entries
   entry get <id>            Get time entry
-  entry text list --project <id>
+  entry text list [--project <id>]
                             List known entry texts
   entry add [fields]        Create time entry
   entry update <id> [fields]
@@ -83,11 +85,14 @@ Commands:
 
   timer current             Show running timer
   timer start [fields]      Start timer
-  timer stop [--end <iso>] [-y]
+  timer stop [--end <iso>] [--no-rounding] [-y]
                             Stop timer
 
+  completion <bash|zsh|fish>
+                            Generate shell completions
+
 Global flags:
-  --format text|raw         Output format (default: text)
+  --format text|json|raw    Output format (default: text)
   --no-meta                 Suppress metadata in text output
   --workspace <id>          Override configured workspace
   --no-rounding             Disable configured rounding for one command
@@ -230,10 +235,10 @@ Create prints only the created task ID on stdout."
 fn entry_help() -> String {
     "Usage:
   cfd entry list [--start <iso|today|yesterday>] [--end <iso|today|yesterday>] [--project <id>] [--task <id>] [--tag <id>...] [--text <value>] [--columns <list>]
-  cfd entry get <id>
-  cfd entry text list --project <id> [--format json] [--no-meta]
+  cfd entry get <id> [--format json] [--no-meta] [--columns <list>]
+  cfd entry text list [--project <id>] [--format json] [--no-meta] [--columns <list>]
   cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
-  cfd entry update <id> [fields...] [--no-rounding]
+  cfd entry update <id> --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
   cfd entry delete <id> [-y]
 
 Date keywords `today` and `yesterday` are resolved in the local process timezone.
@@ -264,9 +269,10 @@ Example:
 
 fn entry_text_help() -> String {
     "Usage:
-  cfd entry text list --project <id> [--format json] [--no-meta] [--columns <list>]
+  cfd entry text list [--project <id>] [--format json] [--no-meta] [--columns <list>]
 
 List previously used entry descriptions for one project.
+Project is resolved from `--project` or stored config.
 
 Available columns:
   text       Entry description
@@ -293,6 +299,15 @@ fn timer_help() -> String {
         .into()
 }
 
+fn completion_help() -> String {
+    "Usage:
+  cfd completion <bash|zsh|fish>
+
+Generate shell completions for Bash, Zsh, or Fish.
+The generated script is written to stdout."
+        .into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::render_help;
@@ -308,6 +323,10 @@ mod tests {
     fn renders_entry_help() {
         let help = render_help(Some("entry"), None, None);
         assert!(help.contains("cfd entry list"));
+        assert!(help.contains("cfd entry get <id> [--format json] [--no-meta] [--columns <list>]"));
+        assert!(help.contains(
+            "cfd entry update <id> --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]"
+        ));
         assert!(help.contains("today|yesterday"));
         assert!(help.contains("id,start,end,duration,description,projectId,projectName,task,tags"));
         assert!(help.contains("one row per entry"));
@@ -318,7 +337,30 @@ mod tests {
     fn renders_entry_text_help() {
         let help = render_help(Some("entry"), Some("text"), Some("list"));
         assert!(help.contains("cfd entry text list"));
+        assert!(help.contains("[--project <id>]"));
+        assert!(help.contains("stored config"));
         assert_columns_help(&help, "--columns text,lastUsed");
+    }
+
+    #[test]
+    fn renders_global_help_with_version_and_full_format_list() {
+        let help = render_help(None, None, None);
+        assert!(help.contains("--version"));
+        assert!(help.contains("--format text|json|raw"));
+        assert!(help.contains("timer stop [--end <iso>] [--no-rounding] [-y]"));
+        assert!(help.contains("completion <bash|zsh|fish>"));
+        assert!(help.contains("Generate shell completions"));
+    }
+
+    #[test]
+    fn renders_completion_help() {
+        let help = render_help(Some("completion"), None, None);
+
+        assert!(help.contains("cfd completion <bash|zsh|fish>"));
+        assert!(help.contains("Bash"));
+        assert!(help.contains("Zsh"));
+        assert!(help.contains("Fish"));
+        assert!(help.contains("stdout"));
     }
 
     #[test]

@@ -28,7 +28,10 @@ fn show_config() -> Result<(), CfdError> {
         "workspace: {}",
         config.workspace.as_deref().unwrap_or("not set")
     );
-    println!("project: {}", config.project.as_deref().unwrap_or("not set"));
+    println!(
+        "project: {}",
+        config.project.as_deref().unwrap_or("not set")
+    );
     println!(
         "rounding: {}",
         config.rounding.map(rounding_as_str).unwrap_or("not set")
@@ -46,13 +49,7 @@ fn interactive_setup() -> Result<(), CfdError> {
     let mut reader = stdin.lock();
     let mut writer = stdout.lock();
 
-    login::run_setup_with_io(
-        &mut reader,
-        &mut writer,
-        &client,
-        &api_key,
-        "Saved config.",
-    )
+    login::run_setup_with_io(&mut reader, &mut writer, &client, &api_key, "Saved config.")
 }
 
 fn set_value(args: &ParsedArgs) -> Result<(), CfdError> {
@@ -75,9 +72,10 @@ fn set_value(args: &ParsedArgs) -> Result<(), CfdError> {
 }
 
 fn get_value(args: &ParsedArgs) -> Result<(), CfdError> {
-    let key = args.positional.first().map(String::as_str).ok_or_else(|| {
-        CfdError::message("usage: cfd config get <workspace|project|rounding>")
-    })?;
+    let key =
+        args.positional.first().map(String::as_str).ok_or_else(|| {
+            CfdError::message("usage: cfd config get <workspace|project|rounding>")
+        })?;
     let config = get_config()?;
 
     let value = match key {
@@ -93,9 +91,10 @@ fn get_value(args: &ParsedArgs) -> Result<(), CfdError> {
 }
 
 fn unset_value(args: &ParsedArgs) -> Result<(), CfdError> {
-    let key = args.positional.first().map(String::as_str).ok_or_else(|| {
-        CfdError::message("usage: cfd config unset <workspace|project|rounding>")
-    })?;
+    let key =
+        args.positional.first().map(String::as_str).ok_or_else(|| {
+            CfdError::message("usage: cfd config unset <workspace|project|rounding>")
+        })?;
     let mut config = get_config()?;
 
     match key {
