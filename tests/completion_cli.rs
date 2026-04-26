@@ -27,6 +27,7 @@ fn bash_completion_succeeds() {
     assert!(completion.contains("_cfd"));
     assert!(completion.contains("complete -F _cfd cfd"));
     assert!(completion.contains("workspace"));
+    assert!(completion.contains("skill"));
     assert!(completion.contains("entry"));
     assert!(completion.contains("--format"));
     assert!(completion.contains("--workspace"));
@@ -75,6 +76,11 @@ COMP_WORDS=(cfd config set rounding "")
 COMP_CWORD=4
 _cfd
 printf 'rounding:%s\n' "${{COMPREPLY[*]}}"
+
+COMP_WORDS=(cfd skill --scope "")
+COMP_CWORD=3
+_cfd
+printf 'scope:%s\n' "${{COMPREPLY[*]}}"
 "#,
         completion_path.display()
     );
@@ -94,10 +100,11 @@ printf 'rounding:%s\n' "${{COMPREPLY[*]}}"
     assert!(candidates.contains("top:"));
     assert!(candidates.contains("workspace"));
     assert!(candidates.contains("timer:current start stop"));
-    assert!(candidates.contains("after-global-option:help login logout whoami workspace config project client tag task entry timer completion"));
+    assert!(candidates.contains("after-global-option:help login logout skill whoami workspace config project client tag task entry timer completion"));
     assert!(candidates.contains("timer-after-option:current start stop"));
     assert!(candidates.contains("entry-text:list"));
     assert!(candidates.contains("rounding:off 1m 5m 10m 15m"));
+    assert!(candidates.contains("scope:brief standard full"));
     assert!(!candidates.contains("timer:add"));
 }
 
@@ -112,6 +119,7 @@ fn zsh_completion_succeeds() {
     assert!(completion.contains("#compdef cfd"));
     assert!(completion.contains("_cfd"));
     assert!(completion.contains("workspace"));
+    assert!(completion.contains("skill"));
     assert!(completion.contains("entry"));
     assert!(completion.contains("--format"));
     assert!(completion.contains("json"));
@@ -127,6 +135,7 @@ fn fish_completion_succeeds() {
     let completion = stdout(&output);
     assert!(completion.contains("complete -c cfd"));
     assert!(completion.contains("workspace"));
+    assert!(completion.contains("skill"));
     assert!(completion.contains("entry"));
     assert!(completion.contains("--format"));
     assert!(completion.contains("json"));
@@ -150,7 +159,7 @@ fn generated_fish_completion_produces_candidates_when_sourced() {
             "--no-config",
             "-c",
             &format!(
-                "source {}; complete -C 'cfd '; complete -C 'cfd entry text '; complete -C 'cfd config set '; complete -C 'cfd --format '",
+                "source {}; complete -C 'cfd '; complete -C 'cfd entry text '; complete -C 'cfd config set '; complete -C 'cfd skill --scope '; complete -C 'cfd --format '",
                 completion_path.display()
             ),
         ])
@@ -165,8 +174,12 @@ fn generated_fish_completion_produces_candidates_when_sourced() {
 
     let candidates = String::from_utf8_lossy(&complete_output.stdout);
     assert!(candidates.contains("workspace\tManage workspaces"));
+    assert!(candidates.contains("skill\tPrint SKILL.md guidance"));
     assert!(candidates.contains("list\tList known entry texts"));
     assert!(candidates.contains("rounding\tRounding default"));
+    assert!(candidates.contains("brief"));
+    assert!(candidates.contains("standard"));
+    assert!(candidates.contains("full"));
     assert!(candidates.contains("json"));
     assert!(!candidates.contains("add\tCreate time entry"));
     assert!(!candidates.contains("interactive\tInteractively update stored defaults"));

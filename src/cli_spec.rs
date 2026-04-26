@@ -3,6 +3,7 @@
 pub const FORMAT_VALUES: &[&str] = &["text", "json", "raw"];
 pub const ROUNDING_VALUES: &[&str] = &["off", "1m", "5m", "10m", "15m"];
 pub const COMPLETION_SHELLS: &[&str] = &["bash", "zsh", "fish"];
+pub const SKILL_SCOPE_VALUES: &[&str] = &["brief", "standard", "full"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
@@ -108,6 +109,16 @@ pub fn cli_spec() -> CommandSpec {
             ),
             leaf("login", "Store Clockify credentials"),
             leaf("logout", "Clear stored credentials"),
+            command(
+                "skill",
+                "Print SKILL.md guidance",
+                vec![
+                    option_value("scope", "Skill detail level", "scope", SKILL_SCOPE_VALUES),
+                    option_value("workspace", "Workspace ID", "id", &[]),
+                ],
+                vec![],
+                vec![],
+            ),
             leaf("whoami", "Show current Clockify user"),
             command(
                 "workspace",
@@ -473,6 +484,7 @@ mod tests {
                 "help",
                 "login",
                 "logout",
+                "skill",
                 "whoami",
                 "workspace",
                 "config",
@@ -549,11 +561,26 @@ mod tests {
     }
 
     #[test]
+    fn skill_scope_exposes_supported_values() {
+        let spec = cli_spec();
+        let scope = spec
+            .find(&["skill"])
+            .unwrap()
+            .options
+            .iter()
+            .find(|option| option.long == Some("scope"))
+            .unwrap();
+
+        assert_eq!(scope.values, SKILL_SCOPE_VALUES);
+    }
+
+    #[test]
     fn command_paths_include_nested_leaves() {
         let spec = cli_spec();
         let paths = spec.command_paths();
 
         assert!(paths.contains(&vec!["login"]));
+        assert!(paths.contains(&vec!["skill"]));
         assert!(paths.contains(&vec!["workspace", "list"]));
         assert!(paths.contains(&vec!["config", "set", "rounding"]));
         assert!(paths.contains(&vec!["entry", "text", "list"]));

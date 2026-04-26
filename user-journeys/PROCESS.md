@@ -36,6 +36,8 @@ The agent:
 3. Verifies the expected result after every step
 4. Performs cleanup even if a step fails
 
+Skill-generation journeys are read-only and should not create Clockify resources. They are semantic reviews, not golden text tests: verify workspace inclusion, update instructions, time tracking trigger clarity, and scope-appropriate detail rather than exact wording.
+
 ### 3. Naming Convention
 
 All test entities should use this prefix when possible:
@@ -73,3 +75,5 @@ Examples:
 7. `07-filters-and-output.md`
 8. `08-workspace-defaults-and-overrides.md`
 9. `09-api-compat-guard.md`
+10. `10-agent-skill-generation.md`
+11. `11-workspace-agent-skill-generation.md`

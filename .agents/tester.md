@@ -57,6 +57,8 @@ Specific coverage:
 13. bare `--columns` fails with a useful usage-style error
 14. `--columns` and `--format` conflict clearly
 15. `completion bash|zsh|fish` produces non-empty shell-specific output without requiring auth
+16. `skill` produces current agent guidance without requiring auth unless `--workspace` is passed
+17. `skill --workspace <id>` resolves and embeds workspace context
 
 ## Rust-specific Notes
 
@@ -92,6 +94,8 @@ Important process rules:
 | Filters & Output | `07-filters-and-output.md` | list filters, formats, `--no-meta` |
 | Defaults & Overrides | `08-workspace-defaults-and-overrides.md` | config/env/flag precedence |
 | API Guard | `09-api-compat-guard.md` | request shapes and risky integrations |
+| Agent Skill Generation | `10-agent-skill-generation.md` | generic skill output, scopes, update instructions |
+| Workspace Agent Skill Generation | `11-workspace-agent-skill-generation.md` | workspace-specific skill output and semantic review |
 
 ## Conventions
 

@@ -95,6 +95,13 @@ fn run() -> Result<(), error::CfdError> {
         )));
     }
 
+    if resource == "skill" {
+        commands::skill::validate(&args)?;
+        if commands::skill::workspace_ref(&args)?.is_none() {
+            return commands::skill::run(None, &args);
+        }
+    }
+
     match (resource, action, subaction) {
         ("login", _, _) => commands::login::execute(&args),
         ("logout", _, _) => commands::logout::execute(),
@@ -160,6 +167,16 @@ fn run() -> Result<(), error::CfdError> {
             let client = client::ClockifyClient::new(api_key, client::UreqTransport);
             commands::timer::execute(&client, &args, &workspace_id, &config)
         }
+        ("skill", _, _) => {
+            let config = config::get_config()?;
+            let api_key = config::resolve_api_key(&config)?;
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let workspace = commands::skill::workspace_ref(&args)?
+                .map(|workspace_id| client.get_workspace(workspace_id))
+                .transpose()?
+                .map(commands::skill::SkillWorkspaceContext::from);
+            commands::skill::run(workspace, &args)
+        }
         _ => Err(error::CfdError::message(format!(
             "unknown command: cfd {}",
             resource
@@ -172,6 +189,7 @@ fn is_known_command(resource: &str, action: Option<&str>, subaction: Option<&str
         (resource, action, subaction),
         ("login", None, None)
             | ("logout", None, None)
+            | ("skill", None, None)
             | ("whoami", None, None)
             | ("workspace", Some("list" | "get"), None)
             | ("config", None, None)

@@ -9,6 +9,7 @@ pub fn render_help(
             "Usage: cfd login\n\nPrompt for the Clockify API key and optionally store a default workspace, default project, and default rounding.".into()
         }
         (Some("logout"), _, _) => "Usage: cfd logout\n\nRemove the stored config.".into(),
+        (Some("skill"), _, _) => skill_help(),
         (Some("whoami"), _, _) => "Usage: cfd whoami\n\nShow the current user.".into(),
         (Some("workspace"), _, _) => workspace_help(),
         (Some("config"), _, _) => config_help(),
@@ -36,6 +37,11 @@ Commands:
   --version                 Show version
   login                     Interactive login
   logout                    Remove stored config
+
+Agent Skills:
+  skill                     Print latest SKILL.md guidance for AI agents
+
+Core:
   whoami                    Show current user
 
   workspace list            List workspaces
@@ -98,7 +104,36 @@ Global flags:
   --no-rounding             Disable configured rounding for one command
   -y                        Skip confirmation prompts
 
+AI agents can run `cfd skill` to get current cfd usage instructions.
+Use `cfd skill --workspace <workspace-id>` for workspace-specific examples.
+
 Run `cfd help <command>` or `cfd <command> help` for command help."
+        .into()
+}
+
+fn skill_help() -> String {
+    "Usage:
+  cfd skill [--scope brief|standard|full] [--workspace <workspace-id>]
+
+Generate the latest SKILL.md content for AI agents using cfd.
+
+Agents can run this command themselves to fetch current cfd usage
+instructions instead of relying on a stale checked-in skill file.
+Redirect stdout to SKILL.md when a persistent skill file is wanted.
+
+Options:
+  --scope brief|standard|full   Detail level for the generated skill; default: standard
+  --workspace <workspace-id>    Resolve workspace and include workspace-specific context/examples
+
+Formats:
+  --format text                 Print Markdown; default
+  --format md                   Print Markdown
+
+Examples:
+  cfd skill
+  cfd skill --scope brief
+  cfd skill --workspace <workspace-id>
+  cfd skill --workspace <workspace-id> --scope full > SKILL.md"
         .into()
 }
 

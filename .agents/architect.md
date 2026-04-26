@@ -21,6 +21,7 @@ src/
     mod.rs          <- module declarations
     login.rs        <- interactive login flow
     logout.rs       <- clear credentials
+    skill.rs        <- generated SKILL.md guidance for agents
     whoami.rs       <- current user display
     config.rs       <- stored settings (workspace, project, rounding)
     workspace.rs    <- workspace list/get

@@ -4,6 +4,8 @@
 
 The default output is compact plain text. Use JSON when you want scriptable output, or `--columns` when you want tab-separated rows.
 
+`cfd` can also generate current `SKILL.md` guidance for AI agents with `cfd skill`. Agents can run that command themselves to fetch up-to-date Clockify time tracking instructions, including workspace-specific examples with `cfd skill --workspace <workspace-id>`.
+
 ## Installation
 
 ### Homebrew
@@ -173,6 +175,21 @@ cfd entry help
 cfd help timer
 ```
 
+### AI Agent Skill File
+
+`cfd` can generate a current `SKILL.md` file for AI agents:
+
+```bash
+cfd skill > SKILL.md
+```
+
+Agents can also run `cfd skill` themselves to fetch up-to-date Clockify time tracking guidance instead of relying on stale checked-in instructions. Add `--workspace <workspace-id>` when the agent should receive workspace-specific examples:
+
+```bash
+cfd skill --workspace <workspace-id> > SKILL.md
+cfd skill --workspace <workspace-id> --scope full
+```
+
 ## Command Guide
 
 ### Authentication And Help
@@ -186,6 +203,7 @@ cfd help <command>
 cfd <command> help
 cfd --version
 cfd completion <bash|zsh|fish>
+cfd skill [--scope brief|standard|full] [--workspace <workspace-id>]
 ```
 
 ### Workspaces And Defaults
@@ -270,6 +288,16 @@ cfd timer stop [--end <iso>] [--no-rounding] [-y]
 ```
 
 `timer start` accepts the same project, task, tag, and description fields as entries. `timer stop` uses the current time unless you pass an explicit `--end`.
+
+### Agent Skills
+
+```bash
+cfd skill [--scope brief|standard|full] [--workspace <workspace-id>]
+```
+
+`cfd skill` prints current `SKILL.md` guidance for AI agents working with Clockify time tracking through `cfd`. Without `--workspace`, it works without login. With `--workspace`, it resolves the workspace and includes workspace-specific context and examples.
+
+`cfd skill` supports `--format text` and `--format md`. Both print Markdown. `--format json` and `--format raw` are not supported for this command.
 
 ## Working With Output
 

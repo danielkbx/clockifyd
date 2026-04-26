@@ -22,6 +22,7 @@ fn render_bash(spec: &CommandSpec) -> String {
             .map(|option| option_name(option)),
     );
     let format_values = words(values_for_option(spec, "format").iter().copied());
+    let scope_values = words(values_for_option(spec, "scope").iter().copied());
     let rounding_values = words(
         values_for_positional(spec, &["config", "set", "rounding"], "value")
             .iter()
@@ -43,6 +44,10 @@ _cfd()
             COMPREPLY=( $(compgen -W "{format_values}" -- "$cur") )
             return 0
             ;;
+        --scope)
+            COMPREPLY=( $(compgen -W "{scope_values}" -- "$cur") )
+            return 0
+            ;;
         rounding)
             COMPREPLY=( $(compgen -W "{rounding_values}" -- "$cur") )
             return 0
@@ -56,10 +61,10 @@ _cfd()
         *)
             for ((i = 1; i < COMP_CWORD; i++)); do
                 case "${{COMP_WORDS[i]}}" in
-                    --format|--workspace|--columns|--project|--start|--end|--text|--task|--tag|--duration|--description|--name)
+                    --format|--workspace|--columns|--project|--start|--end|--text|--task|--tag|--duration|--description|--name|--scope)
                         ((i++))
                         ;;
-                    --format=*|--workspace=*|--columns=*|--project=*|--start=*|--end=*|--text=*|--task=*|--tag=*|--duration=*|--description=*|--name=*)
+                    --format=*|--workspace=*|--columns=*|--project=*|--start=*|--end=*|--text=*|--task=*|--tag=*|--duration=*|--description=*|--name=*|--scope=*)
                         ;;
                     -*)
                         ;;
@@ -128,6 +133,7 @@ fn render_zsh(spec: &CommandSpec) -> String {
             .map(|option| option_name(option)),
     );
     let format_values = words(values_for_option(spec, "format"));
+    let scope_values = words(values_for_option(spec, "scope"));
     let rounding_values = words(values_for_positional(
         spec,
         &["config", "set", "rounding"],
@@ -151,6 +157,10 @@ _cfd()
       compadd -- {format_values}
       return
       ;;
+    --scope)
+      compadd -- {scope_values}
+      return
+      ;;
     rounding)
       compadd -- {rounding_values}
       return
@@ -167,10 +177,10 @@ _cfd()
   for (( i = 2; i < CURRENT; i++ )); do
     word="${{words[i]}}"
     case "$word" in
-      --format|--workspace|--columns|--project|--start|--end|--text|--task|--tag|--duration|--description|--name)
+      --format|--workspace|--columns|--project|--start|--end|--text|--task|--tag|--duration|--description|--name|--scope)
         (( i++ ))
         ;;
-      --format=*|--workspace=*|--columns=*|--project=*|--start=*|--end=*|--text=*|--task=*|--tag=*|--duration=*|--description=*|--name=*)
+      --format=*|--workspace=*|--columns=*|--project=*|--start=*|--end=*|--text=*|--task=*|--tag=*|--duration=*|--description=*|--name=*|--scope=*)
         ;;
       -*)
         ;;
