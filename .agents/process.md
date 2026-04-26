@@ -4,6 +4,14 @@
 
 Before implementing any non-trivial task, read all files in `.agents/` and include that step explicitly in the plan.
 
+## Documentation Ownership
+
+- `README.md` is user documentation.
+- `.agents/*.md` and `CLAUDE.md` are maintainer and agent documentation.
+- Completed implementation plans should not remain as active `PLAN.md` files.
+- Update README only for user-visible behavior changes.
+- Update `.agents/` files when architecture, testing, review, or process contracts change.
+
 ## Tooling
 
 | Task | Command |
@@ -25,14 +33,14 @@ Before implementing any non-trivial task, read all files in `.agents/` and inclu
 
 ## Branching
 
-- `main` — stable, releasable
-- `feat/<name>` — new features
-- `fix/<name>` — bug fixes
+- `main` - stable, releasable
+- `feat/<name>` - new features
+- `fix/<name>` - bug fixes
 
 ## Config Files
 
-- `~/.config/cfd/config.json` — user config
-- `.env` — local dev overrides, never committed
+- `~/.config/cfd/config.json` - user config
+- `.env` - local dev overrides, never committed
 
 ## Environment Variables
 

@@ -16,16 +16,17 @@ Rust's built-in test framework. Run with `cargo test`.
 
 Target areas:
 
-- `config.rs` — read/write/clear config, env precedence
-- `args.rs` — command parsing variants
-- `format.rs` — output options, line-based text rendering, JSON rendering, metadata suppression
-- `duration.rs` — duration parsing and invalid inputs
-- `datetime.rs` — rounding (`1m`, `5m`, `10m`, `15m`), half-up behavior, boundary cases
-- `client.rs` — API methods with `MockTransport`
-- `commands/entry.rs` — overlap detection, `--no-rounding`, self-exclusion for updates, `--columns` validation and rendering
-- `commands/timer.rs` — rounding + overlap behavior
-- `commands/task.rs` — create request shape and output contract
-- `commands/login.rs` — interactive login flow and workspace selection
+- `config.rs` - read/write/clear config, env precedence
+- `args.rs` - command parsing variants
+- `format.rs` - output options, line-based text rendering, JSON rendering, metadata suppression
+- `duration.rs` - duration parsing and invalid inputs
+- `datetime.rs` - rounding (`1m`, `5m`, `10m`, `15m`), half-up behavior, boundary cases
+- `client.rs` - API methods with `MockTransport`
+- `commands/entry.rs` - overlap detection, `--no-rounding`, self-exclusion for updates, `--columns` validation and rendering
+- `commands/timer.rs` - rounding + overlap behavior
+- `commands/task.rs` - create request shape and output contract
+- `commands/login.rs` - interactive login flow and workspace selection
+- `completion.rs` and `cli_spec.rs` - shell completion rendering and CLI drift checks
 
 ## CLI Integration Tests
 
@@ -50,9 +51,12 @@ Specific coverage:
 7. `-y` skips overlap confirmation
 8. `end <= start` after rounding is rejected
 9. `login` prompts for API key and default workspace selection
-10. `entry list|get --columns` produce one tab-separated row per entry with no header
-11. bare `--columns` fails with a useful usage-style error
-12. `--columns` and `--format` conflict clearly
+10. `config interactive` reuses an existing API key and updates workspace/project/rounding defaults
+11. `workspace|project|client|tag|task|entry|entry text list --columns` produce one tab-separated row per item with no header
+12. `entry get --columns` produces one tab-separated row with no header
+13. bare `--columns` fails with a useful usage-style error
+14. `--columns` and `--format` conflict clearly
+15. `completion bash|zsh|fish` produces non-empty shell-specific output without requiring auth
 
 ## Rust-specific Notes
 

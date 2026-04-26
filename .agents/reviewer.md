@@ -19,7 +19,8 @@
 
 - Default text output should be line-based and readable without column alignment assumptions
 - List commands in default text mode should separate items with blank lines
-- `entry list|get --columns` must switch to one-row-per-entry tab-separated output with no header
+- `--columns` must switch supported commands to one-row-per-item tab-separated output with no header
+- Supported `--columns` commands are `workspace list`, `project list`, `client list`, `tag list`, `task list`, `entry list`, `entry text list`, and `entry get`
 - Bare `--columns` must fail clearly
 - `--columns` and `--format` must be mutually exclusive
 

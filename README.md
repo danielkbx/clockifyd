@@ -1,19 +1,8 @@
-# clockifyd — Clockify CLI
+# cfd - Clockify CLI
 
-CLI for Clockify time tracking. Single binary, no runtime dependencies, optimized for both humans and AI agents with compact default output.
+`cfd` is a command-line client for Clockify. It works with workspaces, projects, clients, tags, tasks, time entries, running timers, stored defaults, and configurable rounding.
 
-## Status
-
-Implemented and release-ready for the current planned scope:
-
-- auth and config management
-- interactive login with workspace selection
-- workspace, project, client, tag, and task browse commands
-- task creation
-- entry list/get/add/update/delete
-- `entry text list` for reusing prior descriptions
-- timer current/start/stop
-- configurable rounding, overlap warnings, line-based text output, JSON output, and `--columns` for all `list` commands
+The default output is compact plain text. Use JSON when you want scriptable output, or `--columns` when you want tab-separated rows.
 
 ## Installation
 
@@ -28,7 +17,7 @@ The Homebrew formula installs Bash, Zsh, and Fish completion files to Homebrew's
 
 ### Download
 
-Grab the latest binary for your platform from the [Releases](../../releases) page:
+Download the latest archive for your platform from the [Releases](../../releases) page.
 
 | Platform | Archive |
 |---|---|
@@ -37,9 +26,14 @@ Grab the latest binary for your platform from the [Releases](../../releases) pag
 | macOS Intel | `cfd-x86_64-apple-darwin.tar.gz` |
 | macOS Apple Silicon | `cfd-aarch64-apple-darwin.tar.gz` |
 
-### Build from Source
+```bash
+tar xzf cfd-aarch64-apple-darwin.tar.gz
+sudo mv cfd /usr/local/bin/
+```
 
-Requires stable Rust.
+### Build From Source
+
+Requires stable [Rust](https://rustup.rs/).
 
 ```bash
 git clone https://github.com/danielkbx/clockifyd.git
@@ -47,10 +41,12 @@ cd clockifyd
 cargo build --release
 ```
 
+The binary is written to `target/release/cfd`.
+
 ## Shell Completions
 
 `cfd` can generate completion scripts for `bash`, `zsh`, and `fish`.
-Generated scripts are written to stdout.
+Generated scripts are written to stdout and do not require login.
 
 Homebrew installs generated completions automatically. The manual steps below are for downloaded binaries, source builds, or custom shell setups.
 
@@ -145,116 +141,296 @@ Some terminals provide their own completion UI. If `complete --do-complete "cfd 
 
 ## Getting Started
 
+Log in with a Clockify API key:
+
 ```bash
 cfd login
-cfd whoami
-cfd config
-cfd config interactive
-cfd config set rounding 15m
-cfd workspace list --columns id,name
-cfd task create --project <project-id> --name "ABC-1: Implement something nice"
-cfd entry text list --columns text,lastUsed
-cfd entry list --start today --end today --columns start,end,description
-cfd timer start --project <project-id> --description "ABC-1: implement something nice"
 ```
 
-## Commands
+`cfd login` prompts for the API key, then can store a default workspace, default project, and default rounding mode.
 
-### Core
+Check the login:
 
-```text
-cfd help / cfd help <command> / cfd <command> help
-cfd --version
-cfd completion <bash|zsh|fish>
+```bash
+cfd whoami
+```
+
+Explore Clockify:
+
+```bash
+cfd workspace list --columns id,name
+cfd project list --columns id,name,client
+cfd client list --columns id,name
+cfd tag list --columns id,name
+cfd help
+```
+
+Use command-specific help whenever you need exact syntax:
+
+```bash
+cfd help entry
+cfd entry help
+cfd help timer
+```
+
+## Command Guide
+
+### Authentication And Help
+
+```bash
 cfd login
 cfd logout
 cfd whoami
+cfd help
+cfd help <command>
+cfd <command> help
+cfd --version
+cfd completion <bash|zsh|fish>
 ```
 
-### Workspaces
+### Workspaces And Defaults
 
-```text
+```bash
 cfd workspace list [--columns <list>]
 cfd workspace get <id>
-```
 
-### Config
-
-```text
 cfd config
 cfd config interactive
 cfd config set workspace <id>
 cfd config get workspace
 cfd config unset workspace
-
 cfd config set project <id>
 cfd config get project
 cfd config unset project
-
 cfd config set rounding <off|1m|5m|10m|15m>
 cfd config get rounding
 cfd config unset rounding
 ```
 
-### Metadata
+`cfd config interactive` updates stored workspace, project, and rounding defaults without asking for the API key again. Defaults reduce repeated `--workspace` and `--project` flags.
 
-```text
+### Projects, Clients, Tags, And Tasks
+
+```bash
 cfd project list [--columns <list>]
 cfd project get <id>
+
 cfd client list [--columns <list>]
 cfd client get <id>
+
 cfd tag list [--columns <list>]
 cfd tag get <id>
+
 cfd task list --project <id> [--columns <list>]
 cfd task get <project-id> <task-id>
 cfd task create --project <id> --name "ABC-1: Implement something nice"
 ```
 
+Tasks are created explicitly. `task create` prints only the created task ID on stdout.
+
 ### Time Entries
 
-```text
+```bash
 cfd entry list --start <iso|today|yesterday> --end <iso|today|yesterday> [--project <id>] [--task <id>] [--tag <id>...] [--text <value>] [--columns <list>]
-cfd entry get <id>
-cfd entry text list [--project <id>] [--columns <list>]
+cfd entry get <id> [--columns <list>]
 cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
 cfd entry update <id> --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
 cfd entry delete <id> [-y]
 ```
 
+Entry fields:
+
+```bash
+--project <id>
+--task <id>
+--tag <id>
+--description <text>
+```
+
+`today` and `yesterday` use the local process timezone. Create and update commands print only the entry ID. Delete prompts unless `-y` is passed.
+
+### Entry Text Reuse
+
+```bash
+cfd entry text list [--project <id>] [--columns <list>]
+```
+
+`entry text list` lists previously used descriptions for one project. The project comes from `--project` or the stored project default. Descriptions are deduplicated and sorted by most recent use.
+
+```bash
+cfd entry text list --columns text,lastUsed
+```
+
 ### Timer
 
-```text
+```bash
 cfd timer current
 cfd timer start [fields...] [--no-rounding]
 cfd timer stop [--end <iso>] [--no-rounding] [-y]
 ```
 
-## Output Flags
+`timer start` accepts the same project, task, tag, and description fields as entries. `timer stop` uses the current time unless you pass an explicit `--end`.
+
+## Working With Output
+
+Global output flags:
 
 | Flag | Description |
 |---|---|
-| `--format json` | JSON output |
-| `--format text` | Plain text (default) |
-| `--no-meta` | Suppress metadata columns in text output |
+| `--format text` | Plain text, default |
+| `--format json` | JSON output for scripts |
+| `--format raw` | Alias for `--format json` |
+| `--no-meta` | Hide metadata fields where supported |
+| `--columns <list>` | Print selected fields as tab-separated rows where supported |
 | `--workspace <id>` | Override configured workspace |
-| `--no-rounding` | Disable configured rounding for this invocation |
-| `-y` | Skip overlap confirmation prompts |
+| `--no-rounding` | Disable configured rounding for one command |
+| `-y` | Skip confirmation prompts |
 
-Create and update commands print only the resource ID on stdout.
+Text output is line-based:
 
-Notes:
+```text
+key: value
+key: value
+```
 
-- Text output is line-based (`key: value`) by default, with blank lines between list items.
-- `--format raw` is still accepted as an alias for `--format json`.
-- `workspace list`, `project list`, `client list`, `tag list`, `task list`, `entry list`, and `entry text list` support `--columns <list>` for a row-based column view.
-- `entry get` also supports `--columns <list>`.
-- `entry list` and `entry get` support `duration`, `projectId`, and `projectName` column names.
-- `--columns` and `--format` are mutually exclusive.
-- `--version` prints the CLI version and exits.
+Lists separate items with a blank line. `--columns` produces no header row and prints one tab-separated row per item. `--columns` and `--format` are mutually exclusive.
+
+Create and update commands that return one changed resource print only its ID on stdout, which makes them easy to use in scripts:
+
+```bash
+ENTRY_ID=$(cfd entry add --start 2026-04-26T09:00:00Z --duration 30m --project <project-id> --description "Planning")
+cfd entry get "$ENTRY_ID"
+```
+
+Delete and overlap confirmations can be skipped with `-y`.
+
+## Columns Mode
+
+Available columns:
+
+| Command | Columns |
+|---|---|
+| `workspace list` | `id`, `name` |
+| `project list` | `id`, `name`, `client`, `workspaceId`, `workspaceName` |
+| `client list` | `id`, `name` |
+| `tag list` | `id`, `name` |
+| `task list` | `id`, `name`, `project` |
+| `entry list`, `entry get` | `id`, `start`, `end`, `duration`, `description`, `projectId`, `projectName`, `task`, `tags` |
+| `entry text list` | `text`, `lastUsed`, `count` |
+
+Examples:
+
+```bash
+cfd workspace list --columns id,name
+cfd project list --columns id,name,workspaceName
+cfd task list --project <project-id> --columns id,name,project
+cfd entry list --start today --end today --columns start,end,duration,description
+cfd entry text list --columns text,lastUsed,count
+```
+
+## Common Workflows
+
+### Configure Defaults
+
+```bash
+cfd login
+cfd config interactive
+cfd config get workspace
+cfd config get project
+cfd config get rounding
+```
+
+### Start And Stop A Timer
+
+```bash
+cfd timer start --description "ABC-1: Implement feature"
+cfd timer current
+cfd timer stop
+```
+
+With project and task:
+
+```bash
+cfd timer start --project <project-id> --task <task-id> --description "ABC-1: Implement feature"
+```
+
+### Add A Manual Entry
+
+```bash
+cfd entry add --start 2026-04-26T09:00:00Z --duration 1h30m --project <project-id> --description "ABC-1: Implement feature"
+```
+
+### Update An Entry
+
+```bash
+cfd entry update <entry-id> --start 2026-04-26T09:00:00Z --duration 2h --description "ABC-1: Implement feature"
+```
+
+### List Today's Entries
+
+```bash
+cfd entry list --start today --end today --columns start,end,duration,description
+```
+
+### Reuse A Prior Description
+
+```bash
+cfd entry text list --columns text,lastUsed
+cfd entry add --start 2026-04-26T10:00:00Z --duration 45m --description "ABC-1: Implement feature"
+```
+
+### Create A Task
+
+```bash
+TASK_ID=$(cfd task create --project <project-id> --name "ABC-1: Implement feature")
+cfd task get <project-id> "$TASK_ID"
+```
+
+## Rounding And Overlaps
+
+Supported rounding modes are `off`, `1m`, `5m`, `10m`, and `15m`.
+
+```bash
+cfd config set rounding 15m
+cfd config get rounding
+cfd config unset rounding
+```
+
+Disable rounding for one command:
+
+```bash
+cfd entry add --start <iso> --duration 20m --no-rounding
+cfd timer stop --no-rounding
+```
+
+Rounding applies to `entry add`, `entry update`, `timer start`, and `timer stop`.
+
+When a mutating command would create overlapping entries for the current user, `cfd` warns on stderr and asks for confirmation. Use `-y` to continue without the prompt. If rounding causes `end <= start`, retry with `--no-rounding`.
+
+## ID Formats
+
+Use the `id` values printed by `cfd` as input to later commands.
+
+| Type | Input |
+|---|---|
+| Workspace | Clockify workspace ID returned by `workspace list` |
+| Project | Clockify project ID returned by `project list` |
+| Client | Clockify client ID returned by `client list` |
+| Tag | Clockify tag ID returned by `tag list` |
+| Task | Clockify task ID plus project ID |
+| Entry | Clockify time entry ID returned by `entry list`, `entry get`, `entry add`, `timer start`, or `timer stop` |
+
+`task get` requires both project ID and task ID.
 
 ## Configuration
 
-Config file: `~/.config/cfd/config.json`
+Stored config file:
+
+```text
+~/.config/cfd/config.json
+```
+
+Example:
 
 ```json
 {
@@ -265,100 +441,33 @@ Config file: `~/.config/cfd/config.json`
 }
 ```
 
+Environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `CLOCKIFY_API_KEY` | Clockify API key |
+| `CFD_WORKSPACE` | Default workspace override |
+| `CFD_ROUNDING` | Default rounding override |
+| `CFD_CONFIG` | Custom config file path |
+
 Resolution order:
 
-- Workspace: CLI flag -> `CFD_WORKSPACE` -> config
-- Rounding: `--no-rounding` -> `CFD_ROUNDING` -> config -> `off`
-- API key: `CLOCKIFY_API_KEY` -> config
+- API key: `CLOCKIFY_API_KEY` -> config file
+- Workspace: `--workspace` -> `CFD_WORKSPACE` -> config file
+- Rounding: `--no-rounding` -> `CFD_ROUNDING` -> config file -> `off`
 
-`cfd login` is interactive:
-
-1. prompts for the Clockify API key
-2. loads workspaces with that key
-3. lets you choose a default workspace or `none`
-4. shows only workspace names in the interactive selection
-5. if a default workspace was selected, lets you choose a default project or `none`
-6. shows only project names in the interactive selection
-7. lets you choose default rounding or `none`
-
-`cfd config interactive` runs the same workspace/project/rounding flow, but reuses the existing API key from env or config instead of prompting for it.
-
-`cfd config` prints the full stored config and masks the API key, showing only the first 3 and last 3 characters.
-
-## Description Reuse
-
-Ticket references do not need a dedicated field. A common workflow is to store them in the entry description or task name:
-
-```text
-ABC-1: Implement something nice
-```
-
-`cfd entry text list` returns previously used descriptions for the current project, deduplicated and sorted by most recent use. That makes repeated ticket-based logging fast for both humans and agents.
-
-## Columns Mode
-
-All `list` commands support `--columns <list>` in text mode for a compact row-based view:
-
-- `workspace list`
-- `project list`
-- `client list`
-- `tag list`
-- `task list`
-- `entry list`
-- `entry text list`
-
-`entry get` also supports `--columns <list>`.
-
-Available columns by command:
-
-- `workspace list`: `id`, `name`
-- `project list`: `id`, `name`, `client`, `workspaceId`, `workspaceName`
-- `client list`: `id`, `name`
-- `tag list`: `id`, `name`
-- `task list`: `id`, `name`, `project`
-- `entry list` and `entry get`: `id`, `start`, `end`, `duration`, `description`, `projectId`, `projectName`, `task`, `tags`
-- `entry text list`: `text`, `lastUsed`, `count`
-
-Rules:
-
-- `--columns` requires an explicit comma-separated list
-- output contains no header row
-- each item is printed as exactly one tab-separated row
-- `--columns` cannot be combined with `--format`
-
-Examples:
+Use `CFD_CONFIG` for multiple Clockify setups:
 
 ```bash
-cfd workspace list --columns id,name
-cfd task list --project <project-id> --columns id,name,project
-cfd entry text list --columns text,lastUsed
-cfd entry list --start today --end today --columns start,end,description
+alias cfd-work='CFD_CONFIG=~/.config/cfd/work.json cfd'
+alias cfd-oss='CFD_CONFIG=~/.config/cfd/oss.json cfd'
+
+CFD_CONFIG=~/.config/cfd/work.json cfd login
+CFD_CONFIG=~/.config/cfd/oss.json cfd login
 ```
 
-Example output:
-
-```text
-w1	Engineering
-t1	ABC-1: Implement something nice	p1
-Focus work	2026-04-24T10:00:00Z	3
-2026-04-23T09:00:00Z	2026-04-23T10:00:00Z	Focus
-```
-
-## Rounding and Overlap Confirmation
-
-Supported rounding modes: `off`, `1m`, `5m`, `10m`, `15m`
-
-Rounding applies to:
-
-- `entry add`
-- `entry update`
-- `timer start`
-- `timer stop`
-
-`today` and `yesterday` are resolved in the local process timezone for list commands.
-
-When a mutating command would create overlapping entries for the current user, `cfd` warns on `stderr` and asks for confirmation. Use `-y` to continue without the prompt. If rounding causes `end <= start`, retry with `--no-rounding`.
+`cfd config` prints the stored config with the API key masked. `cfd login` stores credentials and can select defaults interactively.
 
 ## License
 
-GPL-3.0-only — see [LICENSE.md](LICENSE.md).
+GPL-3.0-only - see [LICENSE.md](LICENSE.md).

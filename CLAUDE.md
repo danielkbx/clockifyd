@@ -1,18 +1,28 @@
-# clockifyd — Clockify CLI
+# clockifyd - Clockify CLI
 
-A CLI tool for Clockify time tracking. Designed for both human and AI-agent use, with compact output to minimize context window usage.
+`cfd` is the released Clockify CLI for this repository. Current package version: `1.1.0`.
+
+The public README is user documentation. This file and `.agents/*.md` are maintainer and agent context.
 
 ## Project Status
 
-Current scope is implemented. The repo now contains the production CLI, subprocess CLI tests, release workflows, Homebrew formula, and user journeys for real-workspace verification.
+The CLI is released and the current feature surface is implemented. The repo contains:
+
+- production Rust CLI
+- subprocess CLI tests
+- release workflows and Homebrew formula
+- shell completion generation for Bash, Zsh, and Fish
+- user journeys for real-workspace verification
 
 ## Architecture
 
 ```text
 src/
-  main.rs         <- entry point, command routing
+  main.rs         <- entry point, command routing, known-command validation
   args.rs         <- argument parsing
+  cli_spec.rs     <- canonical visible CLI model for completions and drift tests
   client.rs       <- HTTP transport trait + Clockify API client
+  completion.rs   <- shell completion renderers
   config.rs       <- credential resolution + storage
   datetime.rs     <- timestamp parsing + rounding helpers
   duration.rs     <- duration parsing
@@ -23,11 +33,11 @@ src/
   types.rs        <- all data structures
   commands/       <- command handlers
 tests/            <- subprocess CLI coverage
-user-journeys/    <- end-to-end test scripts for AI agents
-.agents/          <- project context files
+user-journeys/    <- end-to-end test scripts for real Clockify workspaces
+.agents/          <- maintainer and agent context files
 ```
 
-Core logic (`client.rs`, `config.rs`, `types.rs`, `error.rs`) must have no CLI dependencies. Command handlers in `commands/` own formatting, prompting, and stdout/stderr behavior.
+Core logic (`client.rs`, `config.rs`, `types.rs`, `error.rs`) must have no CLI command dependencies. Command handlers in `commands/` own formatting, prompting, global flag behavior, and stdout/stderr behavior.
 
 ## Tech Stack
 
@@ -35,20 +45,24 @@ Core logic (`client.rs`, `config.rs`, `types.rs`, `error.rs`) must have no CLI d
 - HTTP: `ureq` 3
 - JSON: `serde` + `serde_json`
 - Build: `cargo build --release`
-- Distribution: standalone binaries via GitHub Releases
+- Distribution: standalone binaries via GitHub Releases and Homebrew formula
 - Auth: Clockify API key via `X-Api-Key`
 - Config: `~/.config/cfd/config.json` (XDG)
 - Repository: `https://github.com/danielkbx/clockifyd`
 
-## Implemented Commands
+## Command Surface
 
 ```text
 cfd help / cfd help <command> / cfd <command> help
+cfd --version
+cfd completion <bash|zsh|fish>
 cfd login / logout / whoami
 
 cfd workspace list [--columns <list>]
 cfd workspace get <id>
 
+cfd config
+cfd config interactive
 cfd config set workspace <id>
 cfd config get workspace
 cfd config unset workspace
@@ -70,7 +84,7 @@ cfd task get <project-id> <task-id>
 cfd task create --project <id> --name "ABC-1: Implement something nice"
 
 cfd entry list --start <iso|today|yesterday> --end <iso|today|yesterday> [--project <id>] [--task <id>] [--tag <id>...] [--text <value>] [--columns <list>]
-cfd entry get <id>
+cfd entry get <id> [--columns <list>]
 cfd entry text list [--project <id>] [--columns <list>]
 cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
 cfd entry update <id> --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
@@ -81,35 +95,61 @@ cfd timer start [fields...] [--no-rounding]
 cfd timer stop [--end <iso>] [--no-rounding] [-y]
 ```
 
-## Output Flags
+Entry and timer fields:
+
+```text
+--project <id>
+--task <id>
+--tag <id>
+--description <text>
+```
+
+## Output Contracts
 
 | Flag | Description |
 |---|---|
 | `--format json` | JSON output |
-| `--format text` | Plain text, no Markdown |
-| `--no-meta` | Suppress metadata |
-| `--columns <list>` | Compact tab-separated text output for list commands |
+| `--format text` | Plain text, default |
+| `--format raw` | Compatibility alias for `--format json` |
+| `--no-meta` | Suppress metadata where supported |
+| `--columns <list>` | Compact tab-separated text output where supported |
 | `--workspace <id>` | Override configured workspace |
 | `--no-rounding` | Disable configured rounding for this command |
 | `-y` | Skip confirmation prompts |
 
-Create and update commands should output only the created or updated resource ID on stdout.
+Create and update commands output only the created or updated resource ID on stdout.
 
-Notes:
+Text output is line-based (`key: value`) by default, with blank lines between list items.
 
-- Text output is line-based (`key: value`) by default, with blank lines between list items.
-- `--format raw` remains accepted as an alias for `--format json`.
-- `workspace list`, `project list`, `client list`, `tag list`, `task list`, `entry list`, and `entry text list` support `--columns <list>`.
-- `entry get` also supports `--columns <list>`.
-- `entry list` and `entry get` support `duration`, `projectId`, and `projectName` column names.
-- `project list` supports `workspaceId` and `workspaceName` column names.
-- `--columns` requires an explicit comma-separated list.
-- `--columns` and `--format` are mutually exclusive.
+`--columns` rules:
+
+- supported by `workspace list`, `project list`, `client list`, `tag list`, `task list`, `entry list`, `entry text list`, and `entry get`
+- requires an explicit comma-separated list
+- emits no header row
+- emits one tab-separated row per item
+- cannot be combined with `--format`
+
+Column names:
+
+- `workspace list`: `id`, `name`
+- `project list`: `id`, `name`, `client`, `workspaceId`, `workspaceName`
+- `client list`: `id`, `name`
+- `tag list`: `id`, `name`
+- `task list`: `id`, `name`, `project`
+- `entry list` and `entry get`: `id`, `start`, `end`, `duration`, `description`, `projectId`, `projectName`, `task`, `tags`
+- `entry text list`: `text`, `lastUsed`, `count`
 
 ## Configuration
 
-```json
+Config path:
+
+```text
 ~/.config/cfd/config.json
+```
+
+Example:
+
+```json
 {
   "apiKey": "clockify-api-key",
   "workspace": "64a687e29ae1f428e7ebe303",
@@ -120,25 +160,38 @@ Notes:
 
 Credential and settings resolution order:
 
-- Workspace: CLI flag -> `CFD_WORKSPACE` -> config file -> error
-- Rounding: `--no-rounding` -> `CFD_ROUNDING` -> config file -> off
 - API key: `CLOCKIFY_API_KEY` -> config file -> error
+- Workspace: CLI flag -> `CFD_WORKSPACE` -> config file -> error
+- Rounding: `--no-rounding` -> `CFD_ROUNDING` -> config file -> `off`
 
 `entry text list` resolves project from `--project` or stored config. `today` and `yesterday` are supported in entry-list date filters and resolve in the local process timezone.
+
+## Runtime Rules
+
+- `login` prompts for the Clockify API key, validates credentials by loading workspaces, and can store default workspace/project/rounding.
+- `config interactive` reuses the existing API key from env or config and updates workspace/project/rounding.
+- Mutating time commands apply configured rounding unless `--no-rounding` is present.
+- Overlap warnings apply to `entry add`, `entry update`, `timer start`, and `timer stop`.
+- Overlap is warning plus confirmation, not a hard error.
+- `-y` skips confirmation prompts but must not skip overlap detection.
 
 ## Core Principles
 
 ### Think Before Coding
-Don't assume. Don't hide confusion. Surface tradeoffs. State assumptions explicitly. Ask clarifying questions before implementing.
+
+Do not assume. Surface tradeoffs. State assumptions explicitly. Ask clarifying questions before implementing when product intent is unclear.
 
 ### Simplicity First
-Minimum code that solves the problem. Nothing speculative. No unrequested features, no single-use abstractions, no impossible error handling.
+
+Use the minimum code that solves the problem. Avoid speculative features and single-use abstractions.
 
 ### Surgical Changes
-Touch only what you must. Clean up only your own mess. Match existing style. Every changed line must trace to the user's request.
+
+Touch only what the task requires. Match existing style. Clean up only your own changes.
 
 ### Goal-Driven Execution
-Define success criteria before coding. Write tests before fixes. Verify refactored code still passes. Loop until verified.
+
+Define success criteria before coding. Write or update tests for behavior changes. Verify the relevant test set before finishing.
 
 ## Agent Files
 
@@ -150,4 +203,4 @@ Read these files at the start of any non-trivial task:
 | `.agents/reviewer.md` | Code review standards and report format |
 | `.agents/tester.md` | Test types, conventions, user journeys |
 | `.agents/memory.md` | API quirks and project decisions not obvious from code |
-| `.agents/process.md` | Tooling commands, commit rules, env vars |
+| `.agents/process.md` | Tooling commands, commit rules, env vars, documentation ownership |

@@ -6,7 +6,9 @@
 src/
   main.rs           <- entry point, command routing, known-command validation
   args.rs           <- argument parsing (handwritten, no clap)
+  cli_spec.rs       <- canonical user-visible CLI model for completions and drift tests
   client.rs         <- HttpTransport trait + ClockifyClient + UreqTransport
+  completion.rs     <- Bash, Zsh, and Fish completion renderers
   config.rs         <- credential resolution + storage (XDG, mode 600)
   datetime.rs       <- timestamp parsing + configurable rounding
   duration.rs       <- parse_duration helpers
@@ -28,11 +30,13 @@ src/
     task.rs         <- task list/get/create
     entry.rs        <- time-entry list/get/add/update/delete
     timer.rs        <- timer current/start/stop
+tests/              <- subprocess CLI coverage
+user-journeys/      <- real-workspace verification flows
 ```
 
 ## Module Boundary
 
-Core modules (`client.rs`, `config.rs`, `types.rs`, `error.rs`) must have no CLI dependencies.
+Core modules (`client.rs`, `config.rs`, `types.rs`, `error.rs`) must have no CLI command dependencies.
 
 `commands/` own:
 
@@ -40,11 +44,11 @@ Core modules (`client.rs`, `config.rs`, `types.rs`, `error.rs`) must have no CLI
 - confirmation prompts
 - interpretation of global flags
 - final output formatting
-- `entry list/get --columns` behavior and validation
+- command-specific `--columns` behavior and validation
 
 ## HttpTransport Trait
 
-Planned shape:
+Current shape:
 
 ```rust
 pub trait HttpTransport {
@@ -62,7 +66,9 @@ Test transport: `MockTransport`
 
 ## Command Validation
 
-Command names must be validated against a KNOWN map in `main.rs` before loading config. A typo must not produce misleading auth or workspace errors.
+Command names must be validated against the known-command routing in `main.rs` before loading config. A typo must not produce misleading auth or workspace errors.
+
+The canonical visible command tree also lives in `src/cli_spec.rs` for completion rendering and drift tests. User-visible command changes must keep `main.rs`, `help.rs`, and `cli_spec.rs` in sync.
 
 ## Workspace Resolution
 
@@ -123,7 +129,7 @@ Base URL:
 https://api.clockify.me/api/v1
 ```
 
-Relevant endpoints for initial scope:
+Clockify API endpoints used by `cfd`:
 
 - `GET /v1/user`
 - `GET /v1/workspaces`
@@ -165,17 +171,32 @@ List commands print blank lines between items.
 
 JSON output uses `--format json`. `--format raw` is accepted as an alias for compatibility.
 
-`entry list` and `entry get` have a second text mode via `--columns <list>`:
+`--columns <list>` is a compact text mode:
 
 - no header row
-- one tab-separated row per entry
-- available columns: `id,start,end,description,project,task,tags`
+- one tab-separated row per item
+- caller-selected column order
 - mutually exclusive with `--format`
+
+Commands with `--columns`:
+
+- `workspace list`: `id`, `name`
+- `project list`: `id`, `name`, `client`, `workspaceId`, `workspaceName`
+- `client list`: `id`, `name`
+- `tag list`: `id`, `name`
+- `task list`: `id`, `name`, `project`
+- `entry list`, `entry get`: `id`, `start`, `end`, `duration`, `description`, `projectId`, `projectName`, `task`, `tags`
+- `entry text list`: `text`, `lastUsed`, `count`
+
+Create and update commands print only the changed resource ID on stdout.
 
 ## Adding a Command
 
 1. Add API method on `ClockifyClient` in `client.rs`
 2. Add handler in `commands/<resource>.rs`
-3. Register in the KNOWN map and top-level router
-4. Add unit and CLI tests
-5. Update `README.md` and `CLAUDE.md`
+3. Register in known-command validation and top-level routing
+4. Update `src/cli_spec.rs`
+5. Update `src/help.rs`
+6. Add unit and CLI tests
+7. Update `README.md` only if user-visible behavior changes
+8. Update `.agents/architect.md`, `.agents/tester.md`, or `.agents/reviewer.md` only if internal contracts or process guidance change
