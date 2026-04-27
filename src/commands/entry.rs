@@ -13,6 +13,7 @@ use crate::format::{
 };
 use crate::input;
 use crate::types::{EntryFilters, EntryTextItem, StoredConfig, TimeEntry};
+use chrono::{DateTime, FixedOffset};
 use std::collections::BTreeMap;
 
 pub fn execute<T: HttpTransport>(
@@ -52,8 +53,15 @@ fn list_entries<T: HttpTransport>(
 ) -> Result<(), CfdError> {
     let filters = filters_from_args(args)?;
     let columns = parse_entry_columns(args.flags.get("columns").map(String::as_str))?;
+    let sort = parse_entry_sort(
+        args.flags.get("sort").map(String::as_str),
+        "usage: cfd entry list ... --sort <asc|desc>",
+    )?;
     let user = client.get_current_user()?;
-    let entries = client.list_time_entries(workspace_id, &user.id, &filters)?;
+    let entries = sort_entries(
+        client.list_time_entries(workspace_id, &user.id, &filters)?,
+        sort,
+    )?;
 
     match args.output.format {
         OutputFormat::Json => println!("{}", format_json(&entries)?),
@@ -555,6 +563,47 @@ fn format_entry_fields(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EntrySort {
+    Asc,
+    Desc,
+}
+
+pub(crate) fn parse_entry_sort(value: Option<&str>, usage: &str) -> Result<EntrySort, CfdError> {
+    match value {
+        None => Ok(EntrySort::Asc),
+        Some("asc") => Ok(EntrySort::Asc),
+        Some("desc") => Ok(EntrySort::Desc),
+        Some("true") => Err(CfdError::message(usage)),
+        Some(other) => Err(CfdError::message(format!(
+            "invalid sort: {other}; expected asc or desc"
+        ))),
+    }
+}
+
+pub(crate) fn sort_entries(
+    entries: Vec<TimeEntry>,
+    sort: EntrySort,
+) -> Result<Vec<TimeEntry>, CfdError> {
+    let mut keyed = entries
+        .into_iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let start: DateTime<FixedOffset> =
+                DateTime::parse_from_rfc3339(&entry.time_interval.start)
+                    .map_err(|_| CfdError::message("invalid entry start"))?;
+            Ok((start, index, entry))
+        })
+        .collect::<Result<Vec<_>, CfdError>>()?;
+
+    keyed.sort_by(|a, b| match sort {
+        EntrySort::Asc => a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)),
+        EntrySort::Desc => b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)),
+    });
+
+    Ok(keyed.into_iter().map(|(_, _, entry)| entry).collect())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EntryColumn {
     Id,
     Start,
@@ -812,6 +861,23 @@ mod tests {
         }
     }
 
+    fn entry(id: &str, description: &str, start: &str) -> TimeEntry {
+        TimeEntry {
+            id: id.into(),
+            workspace_id: "w1".into(),
+            user_id: Some("u1".into()),
+            project_id: None,
+            task_id: None,
+            tag_ids: vec![],
+            description: description.into(),
+            time_interval: TimeInterval {
+                start: start.into(),
+                end: None,
+                duration: None,
+            },
+        }
+    }
+
     #[test]
     fn maps_text_flag_to_description_filter() {
         let args = ParsedArgs {
@@ -909,6 +975,62 @@ mod tests {
         assert!(error.contains("usage: cfd entry <list|get>"));
         assert!(error
             .contains("--columns <id,start,end,duration,description,projectId,projectName,...>"));
+    }
+
+    #[test]
+    fn entry_sort_defaults_to_asc_and_accepts_values() {
+        assert_eq!(parse_entry_sort(None, "usage").unwrap(), EntrySort::Asc);
+        assert_eq!(
+            parse_entry_sort(Some("asc"), "usage").unwrap(),
+            EntrySort::Asc
+        );
+        assert_eq!(
+            parse_entry_sort(Some("desc"), "usage").unwrap(),
+            EntrySort::Desc
+        );
+    }
+
+    #[test]
+    fn entry_sort_rejects_bare_and_invalid_values() {
+        let bare = parse_entry_sort(Some("true"), "usage: cfd entry list ... --sort <asc|desc>")
+            .unwrap_err()
+            .to_string();
+        assert!(bare.contains("usage: cfd entry list"));
+
+        let invalid = parse_entry_sort(Some("newest"), "usage")
+            .unwrap_err()
+            .to_string();
+        assert!(invalid.contains("invalid sort: newest; expected asc or desc"));
+    }
+
+    #[test]
+    fn sort_entries_orders_oldest_first_for_asc() {
+        let sorted = sort_entries(
+            vec![
+                entry("e2", "Newest", "2026-04-27T11:00:00Z"),
+                entry("e1", "Oldest", "2026-04-27T09:00:00Z"),
+            ],
+            EntrySort::Asc,
+        )
+        .unwrap();
+
+        assert_eq!(sorted[0].id, "e1");
+        assert_eq!(sorted[1].id, "e2");
+    }
+
+    #[test]
+    fn sort_entries_orders_newest_first_for_desc() {
+        let sorted = sort_entries(
+            vec![
+                entry("e1", "Oldest", "2026-04-27T09:00:00Z"),
+                entry("e2", "Newest", "2026-04-27T11:00:00Z"),
+            ],
+            EntrySort::Desc,
+        )
+        .unwrap();
+
+        assert_eq!(sorted[0].id, "e2");
+        assert_eq!(sorted[1].id, "e1");
     }
 
     #[test]

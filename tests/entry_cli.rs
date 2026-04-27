@@ -12,6 +12,7 @@ fn help_entry_works() {
     let stdout = stdout(&output);
     assert!(stdout.contains("cfd entry list"));
     assert!(stdout.contains("--text <value>"));
+    assert!(stdout.contains("--sort asc|desc"));
 }
 
 #[test]
@@ -235,6 +236,123 @@ fn entry_columns_requires_value_and_rejects_format_combo() {
     assert!(
         stderr(&conflict).contains("use either --columns <list> or --format <text|json>, not both")
     );
+}
+
+#[test]
+fn entry_list_sorts_oldest_first_by_default() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok(
+            r#"[{"id":"e2","workspaceId":"w1","userId":"u1","description":"Newest","timeInterval":{"start":"2026-04-27T11:00:00Z","end":"2026-04-27T11:30:00Z","duration":"PT30M"}},{"id":"e1","workspaceId":"w1","userId":"u1","description":"Oldest","timeInterval":{"start":"2026-04-27T09:00:00Z","end":"2026-04-27T09:30:00Z","duration":"PT30M"}}]"#,
+        ),
+    ]);
+
+    let output = bin()
+        .args([
+            "entry",
+            "list",
+            "--start",
+            "today",
+            "--end",
+            "today",
+            "--columns",
+            "start,description",
+        ])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(
+        stdout(&output),
+        "2026-04-27T09:00:00Z\tOldest\n2026-04-27T11:00:00Z\tNewest\n"
+    );
+}
+
+#[test]
+fn entry_list_respects_sort_desc() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok(
+            r#"[{"id":"e1","workspaceId":"w1","userId":"u1","description":"Oldest","timeInterval":{"start":"2026-04-27T09:00:00Z","end":"2026-04-27T09:30:00Z","duration":"PT30M"}},{"id":"e2","workspaceId":"w1","userId":"u1","description":"Newest","timeInterval":{"start":"2026-04-27T11:00:00Z","end":"2026-04-27T11:30:00Z","duration":"PT30M"}}]"#,
+        ),
+    ]);
+
+    let output = bin()
+        .args([
+            "entry",
+            "list",
+            "--start",
+            "today",
+            "--end",
+            "today",
+            "--columns",
+            "start,description",
+            "--sort",
+            "desc",
+        ])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(
+        stdout(&output),
+        "2026-04-27T11:00:00Z\tNewest\n2026-04-27T09:00:00Z\tOldest\n"
+    );
+}
+
+#[test]
+fn entry_list_json_uses_selected_sort() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok(
+            r#"[{"id":"e2","workspaceId":"w1","userId":"u1","description":"Newest","timeInterval":{"start":"2026-04-27T11:00:00Z","end":"2026-04-27T11:30:00Z","duration":"PT30M"}},{"id":"e1","workspaceId":"w1","userId":"u1","description":"Oldest","timeInterval":{"start":"2026-04-27T09:00:00Z","end":"2026-04-27T09:30:00Z","duration":"PT30M"}}]"#,
+        ),
+    ]);
+
+    let output = bin()
+        .args([
+            "entry", "list", "--start", "today", "--end", "today", "--format", "json", "--sort",
+            "asc",
+        ])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let value: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert_eq!(value[0]["id"], "e1");
+    assert_eq!(value[1]["id"], "e2");
+}
+
+#[test]
+fn entry_list_rejects_invalid_sort() {
+    let output = bin()
+        .args(["entry", "list", "--sort", "newest"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("invalid sort: newest; expected asc or desc"));
+
+    let bare = bin()
+        .args(["entry", "list", "--sort"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .output()
+        .unwrap();
+
+    assert!(!bare.status.success());
+    assert!(stderr(&bare).contains("usage: cfd entry list ... --sort <asc|desc>"));
 }
 
 #[test]

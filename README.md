@@ -5,7 +5,7 @@
 
 `cfd` is a command-line client for Clockify. It works with workspaces, projects, clients, tags, tasks, time entries, running timers, stored defaults, and configurable rounding.
 
-The default output is compact plain text. Use JSON when you want scriptable output, or `--columns` when you want tab-separated rows.
+The default output is compact plain text. Use JSON when you want scriptable output, or `--columns` when you want tab-separated rows. Entry timeline lists sort by start time ascending by default, so the newest entry appears last; use `--sort desc` for newest first.
 
 `cfd` can also generate current `SKILL.md` guidance for AI agents with `cfd skill`. Agents can run that command themselves to fetch up-to-date Clockify time tracking instructions, including workspace/project-specific examples with `cfd skill --workspace <workspace-id> --project <project-id>`.
 
@@ -257,13 +257,13 @@ Tasks are created explicitly. `task create` prints only the created task ID on s
 ### Time Entries
 
 ```bash
-cfd entry list --start <iso|today|yesterday> --end <iso|today|yesterday> [--project <id>] [--task <id>] [--tag <id>...] [--text <value>] [--columns <list>]
+cfd entry list --start <iso|today|yesterday> --end <iso|today|yesterday> [--project <id>] [--task <id>] [--tag <id>...] [--text <value>] [--columns <list>] [--sort asc|desc]
 cfd entry get <id> [--columns <list>]
 cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
 cfd entry update <id> --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
 cfd entry delete <id> [-y]
 
-cfd today
+cfd today [--sort asc|desc]
 ```
 
 Entry fields:
@@ -275,18 +275,19 @@ Entry fields:
 --description <text>
 ```
 
-`today` and `yesterday` use the local process timezone. Create and update commands print only the entry ID. Delete prompts unless `-y` is passed.
+`today` and `yesterday` use the local process timezone. `entry list` sorts by start time ascending by default; pass `--sort desc` to show newest entries first. Create and update commands print only the entry ID. Delete prompts unless `-y` is passed.
 
 ### Today Summary
 
 ```bash
 cfd today
 cfd today --format json
+cfd today --sort desc
 ```
 
-`cfd today` shows today's entries as an ASCII table with a total row. The text columns are `Project`, `Task`, `Description`, `Time`, and `Duration`. Running entries are displayed as `HH:MM-now` and count toward the total.
+`cfd today` shows today's entries as an ASCII table with a total row. The text columns are `Project`, `Task`, `Description`, `Time`, and `Duration`. Running entries are displayed as `HH:MM-now` and count toward the total. Entries sort by start time ascending by default, putting the newest entry at the bottom; use `--sort desc` to show newest entries first.
 
-`--format json` and `--format raw` return the raw time-entry JSON array, matching `cfd entry list --start today --end today --format json`. Use `entry list --start today --end today --columns <list>` when you need tab-separated columns.
+`--format json` and `--format raw` return the time-entry JSON array in the selected sort order, matching `cfd entry list --start today --end today --format json`. Use `entry list --start today --end today --columns <list>` when you need tab-separated columns.
 
 ### Entry Text Reuse
 
@@ -352,6 +353,7 @@ Global output flags:
 | `--format raw` | Alias for `--format json` |
 | `--no-meta` | Hide metadata fields where supported |
 | `--columns <list>` | Print selected fields as tab-separated rows where supported |
+| `--sort asc|desc` | Sort entry timeline output by start time where supported |
 | `--workspace <id>` | Override configured workspace |
 | `--no-rounding` | Disable configured rounding for one command |
 | `-y` | Skip confirmation prompts |
@@ -363,7 +365,7 @@ key: value
 key: value
 ```
 
-Lists separate items with a blank line. `--columns` produces no header row and prints one tab-separated row per item. `--columns` and `--format` are mutually exclusive.
+Lists separate items with a blank line. `--columns` produces no header row and prints one tab-separated row per item. `--columns` and `--format` are mutually exclusive. `entry list` and `today` support `--sort asc|desc`; `asc` is the default and places the newest entry last.
 
 Create and update commands that return one changed resource print only its ID on stdout, which makes them easy to use in scripts:
 
@@ -394,7 +396,7 @@ Examples:
 cfd workspace list --columns id,name
 cfd project list --columns id,name,workspaceName
 cfd task list --project <project-id> --columns id,name,project
-cfd entry list --start today --end today --columns start,end,duration,description
+cfd entry list --start today --end today --columns start,end,duration,description --sort asc
 cfd entry text list --columns text,lastUsed,count
 ```
 
@@ -440,7 +442,8 @@ cfd entry update <entry-id> --start 2026-04-26T09:00:00Z --duration 2h --descrip
 
 ```bash
 cfd today
-cfd entry list --start today --end today --columns start,end,duration,description
+cfd entry list --start today --end today --columns start,end,duration,description --sort asc
+cfd entry list --start today --end today --sort desc
 ```
 
 ### Reuse A Prior Description

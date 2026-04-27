@@ -6,6 +6,7 @@ pub(crate) const VALUE_FLAGS: &[&str] = &[
     "format",
     "workspace",
     "columns",
+    "sort",
     "project",
     "start",
     "end",

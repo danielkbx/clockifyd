@@ -4,6 +4,7 @@ use chrono::{DateTime, Local, Utc};
 
 use crate::args::ParsedArgs;
 use crate::client::{ClockifyClient, HttpTransport};
+use crate::commands::entry::{parse_entry_sort, sort_entries, EntrySort};
 use crate::datetime;
 use crate::error::CfdError;
 use crate::format::{format_json, OutputFormat};
@@ -21,6 +22,10 @@ pub fn execute<T: HttpTransport>(
             "cfd today does not support --columns; use cfd entry list --start today --end today --columns <list>",
         ));
     }
+    let sort = parse_entry_sort(
+        args.flags.get("sort").map(String::as_str),
+        "usage: cfd today [--sort asc|desc]",
+    )?;
 
     let filters = EntryFilters {
         start: Some(datetime::resolve_list_datetime("start", "today")?),
@@ -28,13 +33,16 @@ pub fn execute<T: HttpTransport>(
         ..EntryFilters::default()
     };
     let user = client.get_current_user()?;
-    let entries = client.list_time_entries(workspace_id, &user.id, &filters)?;
+    let entries = sort_entries(
+        client.list_time_entries(workspace_id, &user.id, &filters)?,
+        sort,
+    )?;
 
     match args.output.format {
         OutputFormat::Json => println!("{}", format_json(&entries)?),
         OutputFormat::Text => {
             let project_names = load_project_names_for_entries(client, workspace_id, &entries)?;
-            let rendered = render_today_entries(&entries, &project_names, Utc::now())?;
+            let rendered = render_today_entries(&entries, &project_names, Utc::now(), sort)?;
             println!("{rendered}");
         }
     }
@@ -46,7 +54,9 @@ fn render_today_entries(
     entries: &[TimeEntry],
     project_names: &BTreeMap<String, String>,
     now: DateTime<Utc>,
+    sort: EntrySort,
 ) -> Result<String, CfdError> {
+    let entries = sort_entries(entries.to_vec(), sort)?;
     let mut total = chrono::Duration::zero();
     let rows = entries
         .iter()
@@ -283,6 +293,7 @@ mod tests {
             )],
             &BTreeMap::from([("p1".into(), "Project One".into())]),
             now,
+            EntrySort::Asc,
         )
         .unwrap();
 
@@ -308,6 +319,7 @@ mod tests {
             )],
             &BTreeMap::new(),
             now,
+            EntrySort::Asc,
         )
         .unwrap();
 
@@ -318,7 +330,8 @@ mod tests {
 
     #[test]
     fn empty_table_renders_zero_total() {
-        let rendered = render_today_entries(&[], &BTreeMap::new(), Utc::now()).unwrap();
+        let rendered =
+            render_today_entries(&[], &BTreeMap::new(), Utc::now(), EntrySort::Asc).unwrap();
 
         assert!(rendered.contains("| Project | Task | Description | Time | Duration |"));
         assert!(rendered.contains("| Total   |      |             |      | 0s       |"));
@@ -331,6 +344,72 @@ mod tests {
             .to_string();
 
         assert!(error.contains("invalid entry start"));
+    }
+
+    #[test]
+    fn today_entries_sort_oldest_first_by_default() {
+        let now = DateTime::parse_from_rfc3339("2026-04-27T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let rendered = render_today_entries(
+            &[
+                entry(
+                    "e2",
+                    None,
+                    None,
+                    "Newest",
+                    "2026-04-27T11:00:00Z",
+                    Some("2026-04-27T11:30:00Z"),
+                ),
+                entry(
+                    "e1",
+                    None,
+                    None,
+                    "Oldest",
+                    "2026-04-27T09:00:00Z",
+                    Some("2026-04-27T09:30:00Z"),
+                ),
+            ],
+            &BTreeMap::new(),
+            now,
+            EntrySort::Asc,
+        )
+        .unwrap();
+
+        assert!(rendered.find("Oldest").unwrap() < rendered.find("Newest").unwrap());
+    }
+
+    #[test]
+    fn today_entries_respect_desc_sort() {
+        let now = DateTime::parse_from_rfc3339("2026-04-27T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let rendered = render_today_entries(
+            &[
+                entry(
+                    "e1",
+                    None,
+                    None,
+                    "Oldest",
+                    "2026-04-27T09:00:00Z",
+                    Some("2026-04-27T09:30:00Z"),
+                ),
+                entry(
+                    "e2",
+                    None,
+                    None,
+                    "Newest",
+                    "2026-04-27T11:00:00Z",
+                    Some("2026-04-27T11:30:00Z"),
+                ),
+            ],
+            &BTreeMap::new(),
+            now,
+            EntrySort::Desc,
+        )
+        .unwrap();
+
+        assert!(rendered.find("Newest").unwrap() < rendered.find("Oldest").unwrap());
     }
 
     #[test]

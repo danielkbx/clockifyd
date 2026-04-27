@@ -1,6 +1,6 @@
 # clockifyd - Clockify CLI
 
-`cfd` is the released Clockify CLI for this repository. Current package version: `1.3.0`.
+`cfd` is the released Clockify CLI for this repository. Current package version: `1.4.0`.
 
 The public README is user documentation. This file and `.agents/*.md` are maintainer and agent context.
 
@@ -89,14 +89,14 @@ cfd task list --project <id> [--columns <list>]
 cfd task get <project-id> <task-id>
 cfd task create --project <id> --name "ABC-1: Implement something nice"
 
-cfd entry list --start <iso|today|yesterday> --end <iso|today|yesterday> [--project <id>] [--task <id>] [--tag <id>...] [--text <value>] [--columns <list>]
+cfd entry list --start <iso|today|yesterday> --end <iso|today|yesterday> [--project <id>] [--task <id>] [--tag <id>...] [--text <value>] [--columns <list>] [--sort asc|desc]
 cfd entry get <id> [--columns <list>]
 cfd entry text list [--project <id>] [--columns <list>]
 cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
 cfd entry update <id> --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
 cfd entry delete <id> [-y]
 
-cfd today
+cfd today [--sort asc|desc]
 
 cfd timer current
 cfd timer start [description] [--project <id>] [--task <id>] [--tag <id>] [--no-rounding]
@@ -126,6 +126,7 @@ Timer start accepts `--project`, `--task`, and `--tag`; pass the description as 
 | `--format raw` | Compatibility alias for `--format json` |
 | `--no-meta` | Suppress metadata where supported |
 | `--columns <list>` | Compact tab-separated text output where supported |
+| `--sort asc|desc` | Sort Entry timeline outputs by start time where supported |
 | `--workspace <id>` | Override configured workspace |
 | `--no-rounding` | Disable configured rounding for this command |
 | `-y` | Skip confirmation prompts |
@@ -134,7 +135,9 @@ Create and update commands output only the created or updated resource ID on std
 
 Text output is line-based (`key: value`) by default, with blank lines between list items.
 
-`cfd today` text output is an ASCII table with columns `Project`, `Task`, `Description`, `Time`, and `Duration`, plus a final `Total` row. Running entries display `HH:MM-now` and count toward the total. `cfd today --format json` and `--format raw` return the raw time-entry JSON array.
+`entry list` and `today` sort by `timeInterval.start` ascending by default, so the newest entry appears last. Use `--sort desc` to show newest entries first. The selected order applies to default text, `--columns`, JSON, and raw output.
+
+`cfd today` text output is an ASCII table with columns `Project`, `Task`, `Description`, `Time`, and `Duration`, plus a final `Total` row. Running entries display `HH:MM-now` and count toward the total. `cfd today --format json` and `--format raw` return the time-entry JSON array in the selected sort order.
 
 `--columns` rules:
 

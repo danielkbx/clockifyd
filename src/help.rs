@@ -367,7 +367,7 @@ Create prints only the created task ID on stdout."
 
 fn entry_help() -> String {
     "Usage:
-  cfd entry list --start <iso|today|yesterday> --end <iso|today|yesterday> [filters]
+  cfd entry list --start <iso|today|yesterday> --end <iso|today|yesterday> [filters] [--sort asc|desc]
   cfd entry get <id> [--format json] [--no-meta] [--columns <list>]
   cfd entry text list [--project <id>] [--format json] [--no-meta] [--columns <list>]
   cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
@@ -383,6 +383,7 @@ Filters:
   --task <id>         Task ID
   --tag <id>          Tag ID; may be repeated
   --text <value>      Description text filter
+  --sort asc|desc     Sort entries by start time; default asc
 
 Fields:
   --project <id>      Project ID
@@ -408,9 +409,14 @@ Default text columns:
 Constraints:
   `--columns` requires a comma-separated list
   `--columns` cannot be combined with `--format`
+  `--sort` accepts `asc` or `desc`
+
+Sorting:
+  `asc` is oldest first and newest last.
+  `desc` is newest first.
 
 Examples:
-  cfd entry list --start today --end today --columns start,end,description
+  cfd entry list --start today --end today --columns start,end,description --sort asc
   cfd entry add --start 2026-04-27T09:00:00Z --duration 1h --project <id>
   cfd entry update <id> --start 2026-04-27T09:00:00Z --end 2026-04-27T10:00:00Z"
         .into()
@@ -442,7 +448,7 @@ Examples:
 
 fn today_help() -> String {
     "Usage:
-  cfd today [--format text|json|raw] [--workspace <id>] [--no-meta]
+  cfd today [--format text|json|raw] [--workspace <id>] [--no-meta] [--sort asc|desc]
 
 Show today's time entries as an ASCII table with a total row.
 
@@ -457,6 +463,8 @@ Formats:
 Notes:
   Today is resolved in the local process timezone.
   Running entries are shown as HH:MM-now and count toward the total.
+  Entries are sorted by start time. Default `asc` puts the newest entry at the bottom.
+  Use `--sort desc` to show newest entries first.
   Task displays the Clockify task ID.
   Use `entry list --start today --end today --columns ...` for tab-separated columns."
         .into()
@@ -521,9 +529,11 @@ mod tests {
             "cfd entry update <id> --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]"
         ));
         assert!(help.contains("today|yesterday"));
+        assert!(help.contains("--sort asc|desc"));
+        assert!(help.contains("default asc"));
         assert!(help.contains("id,start,end,duration,description,projectId,projectName,task,tags"));
         assert!(help.contains("one row per entry"));
-        assert_columns_help(&help, "--columns start,end,description");
+        assert_columns_help(&help, "--columns start,end,description --sort asc");
     }
 
     #[test]
@@ -543,6 +553,8 @@ mod tests {
         assert!(help.contains("Project, Task, Description, Time, Duration"));
         assert!(help.contains("Raw time entry JSON array"));
         assert!(help.contains("HH:MM-now"));
+        assert!(help.contains("--sort asc|desc"));
+        assert!(help.contains("newest entry at the bottom"));
         assert!(help.contains("entry list --start today --end today --columns"));
     }
 

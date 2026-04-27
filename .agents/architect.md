@@ -156,6 +156,8 @@ Clockify API endpoints used by `cfd`:
 
 `cfd today` uses the existing current-user time-entry list endpoint with today's local start/end boundaries and loads projects for display names.
 
+`entry list` and `today` are Entry timeline outputs. They sort by `timeInterval.start` ascending by default, so the newest entry appears last. Both accept `--sort asc|desc`; the selected order applies to text, columns, JSON, and raw output.
+
 ## Config Module
 
 `config.rs` owns:
@@ -179,7 +181,7 @@ field: value
 
 List commands print blank lines between items.
 
-`cfd today` is the exception to line-based default text: it prints an ASCII table with columns `Project`, `Task`, `Description`, `Time`, and `Duration`, followed by a `Total` row. JSON/raw output remains the raw time-entry array.
+`cfd today` is the exception to line-based default text: it prints an ASCII table with columns `Project`, `Task`, `Description`, `Time`, and `Duration`, followed by a `Total` row. JSON/raw output returns the time-entry array in the selected sort order.
 
 JSON output uses `--format json`. `--format raw` is accepted as an alias for compatibility.
 

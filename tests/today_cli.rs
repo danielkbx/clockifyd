@@ -84,6 +84,50 @@ fn today_raw_aliases_json() {
 }
 
 #[test]
+fn today_sorts_oldest_first_by_default() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok(
+            r#"[{"id":"e2","workspaceId":"w1","userId":"u1","description":"Newest","timeInterval":{"start":"2026-04-27T11:00:00Z","end":"2026-04-27T11:30:00Z","duration":"PT30M"}},{"id":"e1","workspaceId":"w1","userId":"u1","description":"Oldest","timeInterval":{"start":"2026-04-27T09:00:00Z","end":"2026-04-27T09:30:00Z","duration":"PT30M"}}]"#,
+        ),
+    ]);
+
+    let output = bin()
+        .args(["today"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.find("Oldest").unwrap() < text.find("Newest").unwrap());
+}
+
+#[test]
+fn today_respects_sort_desc() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok(
+            r#"[{"id":"e1","workspaceId":"w1","userId":"u1","description":"Oldest","timeInterval":{"start":"2026-04-27T09:00:00Z","end":"2026-04-27T09:30:00Z","duration":"PT30M"}},{"id":"e2","workspaceId":"w1","userId":"u1","description":"Newest","timeInterval":{"start":"2026-04-27T11:00:00Z","end":"2026-04-27T11:30:00Z","duration":"PT30M"}}]"#,
+        ),
+    ]);
+
+    let output = bin()
+        .args(["today", "--sort", "desc"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.find("Newest").unwrap() < text.find("Oldest").unwrap());
+}
+
+#[test]
 fn today_rejects_columns() {
     let output = bin()
         .args(["today", "--columns", "start,end"])
@@ -105,4 +149,5 @@ fn today_help_works() {
     assert!(text.contains("cfd today"));
     assert!(text.contains("Project, Task, Description, Time, Duration"));
     assert!(text.contains("HH:MM-now"));
+    assert!(text.contains("--sort asc|desc"));
 }

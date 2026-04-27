@@ -54,6 +54,7 @@ fn skill_generates_standard_markdown_without_credentials() {
     assert!(text.contains("cfd --version"));
     assert!(text.contains("cfd skill --scope standard > SKILL.md"));
     assert!(text.contains("Prefer `--format json`"));
+    assert!(text.contains("`--sort desc`"));
 }
 
 #[test]
@@ -196,6 +197,10 @@ fn project_skill_resolves_workspace_and_project_and_includes_context() {
     assert!(text.contains("- ID: p1"));
     assert!(text.contains("cfd skill --workspace w1 --project p1 --scope standard > SKILL.md"));
     assert!(text.contains("cfd task list --workspace w1 --project p1 --format json"));
+    assert!(text.contains(
+        "cfd entry list --workspace w1 --start today --end today --format json --sort asc"
+    ));
+    assert!(text.contains("`--sort asc|desc`"));
     assert!(text.contains("cfd entry add --workspace w1 --start <iso> --duration <duration> --project p1 --description \"<work>\""));
     assert!(
         text.contains("cfd entry text list --workspace w1 --project p1 --columns text,lastUsed")

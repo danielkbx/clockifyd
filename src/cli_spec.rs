@@ -4,6 +4,7 @@ pub const FORMAT_VALUES: &[&str] = &["text", "json", "raw"];
 pub const ROUNDING_VALUES: &[&str] = &["off", "1m", "5m", "10m", "15m"];
 pub const COMPLETION_SHELLS: &[&str] = &["bash", "zsh", "fish"];
 pub const SKILL_SCOPE_VALUES: &[&str] = &["brief", "standard", "full"];
+pub const SORT_VALUES: &[&str] = &["asc", "desc"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
@@ -245,6 +246,7 @@ pub fn cli_spec() -> CommandSpec {
                             option_value_repeatable("tag", "Tag ID", "id", &[]),
                             option_value("text", "Description text filter", "value", &[]),
                             columns_option(),
+                            sort_option(),
                         ],
                         vec![],
                         vec![],
@@ -283,7 +285,13 @@ pub fn cli_spec() -> CommandSpec {
                     ),
                 ],
             ),
-            leaf("today", "Show today's time entries"),
+            command(
+                "today",
+                "Show today's time entries",
+                vec![sort_option()],
+                vec![],
+                vec![],
+            ),
             command(
                 "timer",
                 "Manage running timer",
@@ -430,6 +438,10 @@ fn entry_mutation_command(name: &'static str, about: &'static str, has_id: bool)
 
 fn columns_option() -> OptionSpec {
     option_value("columns", "Columns to print", "list", &[])
+}
+
+fn sort_option() -> OptionSpec {
+    option_value("sort", "Sort by start time", "asc|desc", SORT_VALUES)
 }
 
 fn command(
@@ -646,6 +658,7 @@ mod tests {
         let names = spec.option_long_names();
 
         assert!(names.contains(&"format"));
+        assert!(names.contains(&"sort"));
         assert!(names.contains(&"columns"));
         assert!(names.contains(&"duration"));
         assert!(names.contains(&"description"));

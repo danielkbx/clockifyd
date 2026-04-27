@@ -23,6 +23,7 @@
 - Supported `--columns` commands are `workspace list`, `project list`, `client list`, `tag list`, `task list`, `entry list`, `entry text list`, and `entry get`
 - Bare `--columns` must fail clearly
 - `--columns` and `--format` must be mutually exclusive
+- Entry timeline outputs (`entry list`, `today`) must sort by start time ascending by default and apply `--sort asc|desc` consistently across text, columns, JSON, and raw output
 
 ## Rounding
 

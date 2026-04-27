@@ -300,6 +300,7 @@ fn push_output_rules(out: &mut String) {
     out.push_str("## Output Rules\n\n");
     out.push_str("- Prefer `--format json` for list/get commands when extracting IDs, comparing data, or planning follow-up commands.\n");
     out.push_str("- Use `--columns <list>` for compact tab-separated inspection when a command supports it.\n");
+    out.push_str("- Entry timeline outputs (`entry list`, `today`) support `--sort asc|desc` and sort by start time ascending by default; use `--sort desc` for newest first.\n");
     out.push_str("- Use text output for quick human-readable inspection.\n");
     out.push_str("- `--format raw` is a compatibility alias for JSON on normal cfd commands. `cfd skill` supports only `--format text` and `--format md`.\n\n");
 }
@@ -319,7 +320,7 @@ fn push_core_commands(
         "cfd task list{workspace_flag} --project {project_id} --format json\n"
     ));
     out.push_str(&format!(
-        "cfd entry list{workspace_flag} --start today --end today --format json\n"
+        "cfd entry list{workspace_flag} --start today --end today --format json --sort asc\n"
     ));
     out.push_str(&format!("cfd entry add{workspace_flag} --start <iso> --duration <duration> --project {project_id} --description \"<work>\"\n"));
     out.push_str(&format!("cfd entry update{workspace_flag} <entry-id> --start <iso> --duration <duration> --description \"<work>\"\n"));
@@ -390,7 +391,7 @@ fn push_examples(
     out.push_str(&format!(
         "cfd project list{workspace_flag} --columns id,name\n"
     ));
-    out.push_str(&format!("cfd entry list{workspace_flag} --start today --end today --columns start,end,duration,description\n"));
+    out.push_str(&format!("cfd entry list{workspace_flag} --start today --end today --columns start,end,duration,description --sort asc\n"));
     out.push_str(&format!(
         "cfd entry text list{workspace_flag} --project {project_id} --columns text,lastUsed\n"
     ));
@@ -409,7 +410,7 @@ fn push_recipes(
     let project_id = project_id(project);
     out.push_str("## Common Recipes\n\n");
     out.push_str(&format!(
-        "- Find today’s tracked time: `cfd entry list{workspace_flag} --start today --end today --format json`.\n"
+        "- Find today’s tracked time in chronological order: `cfd entry list{workspace_flag} --start today --end today --format json --sort asc`.\n"
     ));
     out.push_str(&format!(
         "- Add a manual entry: `cfd entry add{workspace_flag} --start <iso> --duration 30m --project {project_id} --description \"<work>\"`.\n"
@@ -466,6 +467,7 @@ fn push_full_reference(out: &mut String) {
         "- `--format raw` is accepted as a JSON alias for compatibility on normal commands.\n",
     );
     out.push_str("- `--columns` emits no header and one tab-separated row per item; it cannot be combined with `--format`.\n");
+    out.push_str("- `entry list` and `today` support `--sort asc|desc`; default `asc` puts newest entries last.\n");
     out.push_str("- Create/update time-entry commands print only the changed resource ID.\n");
     out.push_str("- `today` and `yesterday` are valid date filters for `entry list` and resolve in the local process timezone.\n\n");
     out.push_str("## Configuration And Defaults\n\n");
@@ -646,6 +648,10 @@ mod tests {
     fn project_examples_use_resolved_project_id() {
         let text = render_skill(SkillScope::Standard, Some(&workspace()), Some(&project()));
         assert!(text.contains("cfd task list --workspace w1 --project p1 --format json"));
+        assert!(text.contains(
+            "cfd entry list --workspace w1 --start today --end today --format json --sort asc"
+        ));
+        assert!(text.contains("`--sort asc|desc`"));
         assert!(text.contains("cfd entry add --workspace w1 --start <iso> --duration <duration> --project p1 --description \"<work>\""));
         assert!(text
             .contains("cfd entry text list --workspace w1 --project p1 --columns text,lastUsed"));

@@ -61,10 +61,11 @@ Specific coverage:
 16. `skill` produces current agent guidance without requiring auth unless workspace/project context is passed
 17. `skill --workspace <id>` resolves and embeds workspace context
 18. `skill --workspace <id> --project <id>` resolves and embeds workspace/project context
-19. `today` renders an ASCII table with `Project`, `Task`, `Description`, `Time`, `Duration`, includes a `Total` row, and `--format json|raw` returns raw time-entry JSON
+19. `today` renders an ASCII table with `Project`, `Task`, `Description`, `Time`, `Duration`, includes a `Total` row, sorts by start time ascending by default, supports `--sort asc|desc`, and `--format json|raw` returns time-entry JSON in the selected order
 20. `today --columns <list>` fails clearly and directs users to `entry list --start today --end today --columns <list>`
-21. `alias create|list|delete` manage local aliases, and `cfd <alias> start` starts a timer with stored project/task/description
-22. `timer resume` lists recent entries interactively, supports `-1` through `-9`, copies project/task/tags/description, and keeps `-y` semantics for direct-selection and overlap prompts
+21. `entry list` sorts by start time ascending by default, supports `--sort asc|desc`, and applies the selected order consistently to default text, `--columns`, JSON, and raw output
+22. `alias create|list|delete` manage local aliases, and `cfd <alias> start` starts a timer with stored project/task/description
+23. `timer resume` lists recent entries interactively, supports `-1` through `-9`, copies project/task/tags/description, and keeps `-y` semantics for direct-selection and overlap prompts
 
 ## Rust-specific Notes
 
