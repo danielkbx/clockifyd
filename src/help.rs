@@ -122,6 +122,7 @@ fn global_help() -> String {
             ("timer current", "Show running timer"),
             ("timer start", "Start timer"),
             ("timer stop", "Stop timer"),
+            ("timer resume", "Start timer from recent entry"),
             ("alias create <name>", "Create or update timer alias"),
             ("alias list", "List configured aliases"),
             ("alias delete <name>", "Delete alias"),
@@ -465,7 +466,8 @@ fn timer_help() -> String {
     "Usage:
   cfd timer current [--format json] [--no-meta]
   cfd timer start [description] [--start <iso>] [fields...] [--no-rounding]
-  cfd timer stop [--end <iso>] [--no-rounding] [-y]"
+  cfd timer stop [--end <iso>] [--no-rounding] [-y]
+  cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <iso>] [--no-rounding] [-y]"
         .to_string()
         + "
 
@@ -478,7 +480,11 @@ Notes:
   Mutating timer commands apply configured rounding unless --no-rounding is set.
   timer start accepts the description as one optional positional argument.
   timer start uses the current time unless --start is set.
-  timer stop checks overlaps and asks for confirmation unless -y is set."
+  timer resume copies project, task, tags, and description from a recent entry.
+  timer resume without -1..-9 lists recent entries and prompts for a selection.
+  timer resume -1 uses the newest entry, -2 the second newest, and so on.
+  Direct resume prompts with default yes unless -y is set.
+  timer stop and resume start paths check overlaps and ask for confirmation unless -y is set."
 }
 
 fn completion_help() -> String {

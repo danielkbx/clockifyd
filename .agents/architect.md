@@ -32,7 +32,7 @@ src/
     task.rs         <- task list/get/create
     entry.rs        <- time-entry list/get/add/update/delete
     today.rs        <- daily time-entry summary table
-    timer.rs        <- timer current/start/stop
+    timer.rs        <- timer current/start/stop/resume
 tests/              <- subprocess CLI coverage
 user-journeys/      <- real-workspace verification flows
 ```
@@ -116,6 +116,7 @@ Overlap warnings apply only to:
 - `entry update`
 - `timer start`
 - `timer stop`
+- `timer resume`
 
 Rules:
 
@@ -125,6 +126,8 @@ Rules:
 - `entry update` excludes the updated entry itself from the check
 - overlaps are warnings, not hard errors
 - `-y` skips only the confirmation prompt
+
+`timer resume` copies project, task, tags, and description from a selected recent entry, then enters the same start pipeline as `timer start`. Direct selectors `-1` through `-9` are parser special cases only for `timer resume`.
 
 ## Clockify API Mapping
 

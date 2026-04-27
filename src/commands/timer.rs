@@ -8,11 +8,14 @@ use crate::format::{
 };
 use crate::input;
 use crate::types::{EntryFilters, OverlapWarning, StoredConfig, TimeEntry};
+use std::collections::BTreeMap;
+use std::io::{self, IsTerminal};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TimerStartFields {
     pub project_id: String,
     pub task_id: Option<String>,
+    pub tag_ids: Vec<String>,
     pub description: Option<String>,
 }
 
@@ -26,7 +29,10 @@ pub fn execute<T: HttpTransport>(
         Some("current") => current_timer(client, args, workspace_id),
         Some("start") => start_timer(client, args, workspace_id, config_state),
         Some("stop") => stop_timer(client, args, workspace_id, config_state),
-        _ => Err(CfdError::message("usage: cfd timer <current|start|stop>")),
+        Some("resume") => resume_timer(client, args, workspace_id, config_state),
+        _ => Err(CfdError::message(
+            "usage: cfd timer <current|start|stop|resume>",
+        )),
     }
 }
 
@@ -63,6 +69,11 @@ fn start_timer<T: HttpTransport>(
     let fields = TimerStartFields {
         project_id,
         task_id: args.flags.get("task").cloned(),
+        tag_ids: args
+            .flags
+            .iter()
+            .filter_map(|(key, value)| (key == "tag").then_some(value.clone()))
+            .collect(),
         description: args.positional.first().cloned(),
     };
     start_timer_with_fields(client, args, workspace_id, config_state, fields)
@@ -103,10 +114,184 @@ pub(crate) fn start_timer_with_fields<T: HttpTransport>(
     if let Some(task_id) = fields.task_id {
         payload["taskId"] = serde_json::Value::String(task_id);
     }
+    if !fields.tag_ids.is_empty() {
+        payload["tagIds"] = serde_json::Value::Array(
+            fields
+                .tag_ids
+                .into_iter()
+                .map(serde_json::Value::String)
+                .collect(),
+        );
+    }
 
     let entry = client.create_time_entry(workspace_id, &payload)?;
     println!("{}", format_resource_id(&entry.id));
     Ok(())
+}
+
+fn resume_timer<T: HttpTransport>(
+    client: &ClockifyClient<T>,
+    args: &ParsedArgs,
+    workspace_id: &str,
+    config_state: &StoredConfig,
+) -> Result<(), CfdError> {
+    validate_resume_args(args)?;
+    let selector = resume_selector(args)?;
+    if (!args.yes || selector.is_none()) && !io::stdin().is_terminal() {
+        return Err(CfdError::message(
+            "cfd timer resume requires an interactive terminal",
+        ));
+    }
+
+    let user = client.get_current_user()?;
+    if find_current_timer_optional(client, workspace_id, &user.id)?.is_some() {
+        return Err(CfdError::message("timer already running"));
+    }
+
+    let mut entries = client
+        .list_time_entries(workspace_id, &user.id, &EntryFilters::default())?
+        .into_iter()
+        .filter(|entry| entry.project_id.is_some())
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| b.time_interval.start.cmp(&a.time_interval.start));
+    entries.truncate(10);
+
+    if entries.is_empty() {
+        return Err(CfdError::message("no recent entries to resume"));
+    }
+
+    let selected_index = match selector {
+        Some(selector) => {
+            let index = usize::from(selector - 1);
+            if index >= entries.len() {
+                return Err(CfdError::message(format!(
+                    "recent entry not found: -{selector}"
+                )));
+            }
+            let project_names = load_resume_project_names(
+                client,
+                workspace_id,
+                std::slice::from_ref(&entries[index]),
+            );
+            eprintln!("Selected entry:");
+            eprintln!("  {}", format_resume_entry(&entries[index], &project_names));
+            if !args.yes && !input::confirm_default_yes("Resume this entry?")? {
+                return Err(CfdError::message("aborted"));
+            }
+            index
+        }
+        None => {
+            let project_names = load_resume_project_names(client, workspace_id, &entries);
+            eprintln!("Recent entries:");
+            for (index, entry) in entries.iter().enumerate() {
+                eprintln!("  {index}  {}", format_resume_entry(entry, &project_names));
+            }
+            let mut reader = io::stdin().lock();
+            let mut writer = io::stderr().lock();
+            input::select_index_with_io(
+                "Select entry [0]: ",
+                entries.len() - 1,
+                0,
+                &mut reader,
+                &mut writer,
+            )?
+        }
+    };
+
+    let selected = &entries[selected_index];
+    let fields = TimerStartFields {
+        project_id: selected.project_id.clone().unwrap(),
+        task_id: selected.task_id.clone(),
+        tag_ids: selected.tag_ids.clone(),
+        description: (!selected.description.is_empty()).then(|| selected.description.clone()),
+    };
+    start_timer_with_fields(client, args, workspace_id, config_state, fields)
+}
+
+fn validate_resume_args(args: &ParsedArgs) -> Result<(), CfdError> {
+    if !args.positional.is_empty() {
+        return Err(CfdError::message(
+            "usage: cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <iso>] [--no-rounding] [-y]",
+        ));
+    }
+    for flag in ["project", "task", "tag", "description"] {
+        if args.flags.contains_key(flag) {
+            return Err(CfdError::message(format!(
+                "cfd timer resume does not accept --{flag}; selected entry supplies timer fields"
+            )));
+        }
+    }
+    resume_selector(args)?;
+    Ok(())
+}
+
+fn resume_selector(args: &ParsedArgs) -> Result<Option<u8>, CfdError> {
+    let selectors = ('1'..='9')
+        .filter(|selector| args.flags.contains_key(&selector.to_string()))
+        .collect::<Vec<_>>();
+    match selectors.as_slice() {
+        [] => Ok(None),
+        [selector] => Ok(Some(selector.to_digit(10).unwrap() as u8)),
+        _ => Err(CfdError::message(
+            "use only one resume selector: -1 through -9",
+        )),
+    }
+}
+
+fn load_resume_project_names<T: HttpTransport>(
+    client: &ClockifyClient<T>,
+    workspace_id: &str,
+    entries: &[TimeEntry],
+) -> BTreeMap<String, String> {
+    let mut names = BTreeMap::new();
+    for project_id in entries
+        .iter()
+        .filter_map(|entry| entry.project_id.as_deref())
+    {
+        if names.contains_key(project_id) {
+            continue;
+        }
+        let name = client
+            .get_project(workspace_id, project_id)
+            .map(|project| project.name)
+            .unwrap_or_else(|_| project_id.to_owned());
+        names.insert(project_id.to_owned(), name);
+    }
+    names
+}
+
+fn format_resume_entry(entry: &TimeEntry, project_names: &BTreeMap<String, String>) -> String {
+    let time = format_resume_start(&entry.time_interval.start)
+        .unwrap_or_else(|_| entry.time_interval.start.clone());
+    let project = entry
+        .project_id
+        .as_deref()
+        .and_then(|project_id| project_names.get(project_id).map(String::as_str))
+        .or(entry.project_id.as_deref())
+        .unwrap_or("-");
+    let task = entry.task_id.as_deref().unwrap_or("-");
+    let description = match entry.description.trim() {
+        "" => "-",
+        value => value,
+    };
+
+    format!("{time}  {project}  {task}  {description}")
+}
+
+fn format_resume_start(start: &str) -> Result<String, CfdError> {
+    let dt = chrono::DateTime::parse_from_rfc3339(start)
+        .map_err(|_| CfdError::message("invalid entry start"))?
+        .with_timezone(&chrono::Local);
+    let today = chrono::Local::now().date_naive();
+    let date = dt.date_naive();
+
+    if date == today {
+        Ok(dt.format("%H:%M").to_string())
+    } else if date == today - chrono::Days::new(1) {
+        Ok(dt.format("yesterday %H:%M").to_string())
+    } else {
+        Ok(dt.format("%Y-%m-%d %H:%M").to_string())
+    }
 }
 
 fn stop_timer<T: HttpTransport>(

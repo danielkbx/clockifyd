@@ -64,6 +64,7 @@ Specific coverage:
 19. `today` renders an ASCII table with `Project`, `Task`, `Description`, `Time`, `Duration`, includes a `Total` row, and `--format json|raw` returns raw time-entry JSON
 20. `today --columns <list>` fails clearly and directs users to `entry list --start today --end today --columns <list>`
 21. `alias create|list|delete` manage local aliases, and `cfd <alias> start` starts a timer with stored project/task/description
+22. `timer resume` lists recent entries interactively, supports `-1` through `-9`, copies project/task/tags/description, and keeps `-y` semantics for direct-selection and overlap prompts
 
 ## Rust-specific Notes
 
@@ -103,6 +104,7 @@ Important process rules:
 | Workspace Agent Skill Generation | `11-workspace-agent-skill-generation.md` | workspace/project-specific skill output and semantic review |
 | Today Summary | `12-today-summary.md` | daily ASCII table, total row, JSON compatibility, running entry display |
 | Timer Aliases | `13-timer-aliases.md` | alias create/list/delete, dynamic alias start, interactive default prompts |
+| Timer Resume | `14-timer-resume.md` | interactive and direct recent-entry resume, copied fields, confirmation defaults |
 
 ## Conventions
 

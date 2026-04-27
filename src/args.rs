@@ -49,6 +49,8 @@ pub fn parse_args(argv: &[String]) -> ParsedArgs {
             }
         } else if arg == "-y" {
             flags.insert("y".to_string(), "true".to_string());
+        } else if let Some(selector) = resume_selector_flag(arg) {
+            flags.insert(selector.to_string(), "true".to_string());
         } else {
             positional.push(arg.clone());
         }
@@ -85,6 +87,14 @@ pub fn parse_args(argv: &[String]) -> ParsedArgs {
 
 pub(crate) fn takes_value(flag: &str) -> bool {
     VALUE_FLAGS.contains(&flag)
+}
+
+fn resume_selector_flag(arg: &str) -> Option<char> {
+    let mut chars = arg.chars();
+    match (chars.next(), chars.next(), chars.next()) {
+        (Some('-'), Some(selector @ '1'..='9'), None) => Some(selector),
+        _ => None,
+    }
 }
 
 fn output_options(flags: &HashMap<String, String>) -> OutputOptions {
@@ -150,6 +160,29 @@ mod tests {
         assert_eq!(parsed.workspace.as_deref(), Some("ws1"));
         assert!(parsed.no_rounding);
         assert!(parsed.yes);
+    }
+
+    #[test]
+    fn parses_resume_numeric_selector_flags() {
+        for selector in '1'..='9' {
+            let flag = format!("-{selector}");
+            let parsed = args(&["timer", "resume", &flag]);
+
+            assert_eq!(parsed.resource.as_deref(), Some("timer"));
+            assert_eq!(parsed.action.as_deref(), Some("resume"));
+            assert_eq!(
+                parsed.flags.get(&selector.to_string()).map(String::as_str),
+                Some("true")
+            );
+        }
+    }
+
+    #[test]
+    fn does_not_parse_general_short_flags() {
+        let parsed = args(&["timer", "resume", "-n1"]);
+
+        assert_eq!(parsed.positional, vec!["-n1"]);
+        assert!(!parsed.flags.contains_key("n"));
     }
 
     #[test]

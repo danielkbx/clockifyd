@@ -75,6 +75,7 @@ pub fn execute_runtime_start<T: HttpTransport>(
         TimerStartFields {
             project_id: alias.project.clone(),
             task_id: alias.task.clone(),
+            tag_ids: Vec::new(),
             description: alias.description.clone(),
         },
     )

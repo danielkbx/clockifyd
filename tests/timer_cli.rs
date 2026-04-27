@@ -1,6 +1,7 @@
 mod support;
 
 use std::fs;
+use std::process::Stdio;
 
 use support::{bin, stderr, stdout, MockResponse, TestServer};
 
@@ -334,5 +335,206 @@ fn timer_start_rejects_multiple_positional_description_tokens() {
 
     assert!(!output.status.success());
     assert!(stderr(&output).contains("usage: cfd timer start [description]"));
+    assert!(server.requests().is_empty());
+}
+
+#[test]
+fn timer_resume_direct_newest_copies_entry_fields() {
+    let recent_entries = r#"[
+        {"id":"older","workspaceId":"w1","userId":"u1","projectId":"p-old","description":"[CFD-TEST] resume older","timeInterval":{"start":"2026-04-23T09:00:00Z","end":"2026-04-23T09:30:00Z","duration":"PT30M"}},
+        {"id":"newest","workspaceId":"w1","userId":"u1","projectId":"p-new","taskId":"t1","tagIds":["tag1"],"description":"[CFD-TEST] resume newest","timeInterval":{"start":"2026-04-23T10:00:00Z","end":"2026-04-23T10:30:00Z","duration":"PT30M"}}
+    ]"#;
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok("[]"),
+        MockResponse::ok(recent_entries),
+        MockResponse::ok(r#"{"id":"p-new","name":"Project New","workspaceId":"w1"}"#),
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok("[]"),
+        MockResponse::ok("[]"),
+        MockResponse::ok(
+            r#"{"id":"resumed","workspaceId":"w1","userId":"u1","projectId":"p-new","taskId":"t1","tagIds":["tag1"],"description":"[CFD-TEST] resume newest","timeInterval":{"start":"2026-04-23T11:00:00+00:00"}}"#,
+        ),
+    ]);
+
+    let output = bin()
+        .args([
+            "timer",
+            "resume",
+            "-1",
+            "--start",
+            "2026-04-23T11:00:00Z",
+            "--no-rounding",
+            "-y",
+        ])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), "resumed\n");
+    assert!(stderr(&output).contains("Selected entry:"));
+    assert!(stderr(&output).contains("[CFD-TEST] resume newest"));
+    assert!(!stderr(&output).contains("Resume this entry?"));
+
+    let requests = server.requests();
+    let body: serde_json::Value = serde_json::from_str(&requests[7].body).unwrap();
+    assert_eq!(body["projectId"], "p-new");
+    assert_eq!(body["taskId"], "t1");
+    assert_eq!(body["tagIds"], serde_json::json!(["tag1"]));
+    assert_eq!(body["description"], "[CFD-TEST] resume newest");
+    assert_eq!(body["start"], "2026-04-23T11:00:00+00:00");
+}
+
+#[test]
+fn timer_resume_direct_second_newest_uses_minus_two() {
+    let recent_entries = r#"[
+        {"id":"older","workspaceId":"w1","userId":"u1","projectId":"p-old","description":"[CFD-TEST] resume older","timeInterval":{"start":"2026-04-23T09:00:00Z","end":"2026-04-23T09:30:00Z","duration":"PT30M"}},
+        {"id":"newest","workspaceId":"w1","userId":"u1","projectId":"p-new","description":"[CFD-TEST] resume newest","timeInterval":{"start":"2026-04-23T10:00:00Z","end":"2026-04-23T10:30:00Z","duration":"PT30M"}}
+    ]"#;
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok("[]"),
+        MockResponse::ok(recent_entries),
+        MockResponse::ok(r#"{"id":"p-old","name":"Project Old","workspaceId":"w1"}"#),
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok("[]"),
+        MockResponse::ok("[]"),
+        MockResponse::ok(
+            r#"{"id":"resumed","workspaceId":"w1","userId":"u1","projectId":"p-old","description":"[CFD-TEST] resume older","timeInterval":{"start":"2026-04-23T11:00:00+00:00"}}"#,
+        ),
+    ]);
+
+    let output = bin()
+        .args([
+            "timer",
+            "resume",
+            "-2",
+            "--start",
+            "2026-04-23T11:00:00Z",
+            "--no-rounding",
+            "-y",
+        ])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), "resumed\n");
+    assert!(stderr(&output).contains("[CFD-TEST] resume older"));
+
+    let requests = server.requests();
+    let body: serde_json::Value = serde_json::from_str(&requests[7].body).unwrap();
+    assert_eq!(body["projectId"], "p-old");
+    assert_eq!(body["description"], "[CFD-TEST] resume older");
+}
+
+#[test]
+fn timer_resume_requires_interactive_terminal_without_yes() {
+    let server = TestServer::spawn(vec![]);
+
+    let output = bin()
+        .args(["timer", "resume", "-1"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("cfd timer resume requires an interactive terminal"));
+    assert!(server.requests().is_empty());
+}
+
+#[test]
+fn timer_resume_reports_no_recent_entries() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok("[]"),
+        MockResponse::ok("[]"),
+    ]);
+
+    let output = bin()
+        .args(["timer", "resume", "-1", "-y"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("no recent entries to resume"));
+}
+
+#[test]
+fn timer_resume_reports_missing_direct_selector_entry() {
+    let recent_entries = r#"[{"id":"newest","workspaceId":"w1","userId":"u1","projectId":"p1","description":"Run","timeInterval":{"start":"2026-04-23T10:00:00Z","end":"2026-04-23T10:30:00Z","duration":"PT30M"}}]"#;
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok("[]"),
+        MockResponse::ok(recent_entries),
+    ]);
+
+    let output = bin()
+        .args(["timer", "resume", "-9", "-y"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("recent entry not found: -9"));
+}
+
+#[test]
+fn timer_resume_reports_running_timer() {
+    let running = r#"[{"id":"running","workspaceId":"w1","userId":"u1","projectId":"p1","description":"Call","timeInterval":{"start":"2026-04-23T10:00:00Z"}}]"#;
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok(running),
+    ]);
+
+    let output = bin()
+        .args(["timer", "resume", "-1", "-y"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("timer already running"));
+}
+
+#[test]
+fn timer_resume_rejects_multiple_numeric_selectors_and_field_overrides() {
+    let server = TestServer::spawn(vec![]);
+
+    let multiple = bin()
+        .args(["timer", "resume", "-1", "-2", "-y"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+    assert!(!multiple.status.success());
+    assert!(stderr(&multiple).contains("use only one resume selector"));
+
+    let project = bin()
+        .args(["timer", "resume", "-1", "--project", "p1", "-y"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+    assert!(!project.status.success());
+    assert!(stderr(&project).contains("does not accept --project"));
+
     assert!(server.requests().is_empty());
 }

@@ -330,6 +330,7 @@ fn push_core_commands(
         "cfd timer start \"<work>\"{workspace_flag} --project {project_id}\n"
     ));
     out.push_str(&format!("cfd timer stop{workspace_flag}\n"));
+    out.push_str(&format!("cfd timer resume -1{workspace_flag} -y\n"));
     out.push_str("```\n\n");
 }
 
@@ -356,7 +357,8 @@ fn push_ids_and_scope(
     out.push_str("- Use IDs returned by JSON output for follow-up commands.\n");
     out.push_str("- `task get` requires both project ID and task ID.\n");
     out.push_str("- Entry fields accept `--project`, `--task`, `--tag`, and `--description`.\n");
-    out.push_str("- Timer start accepts `--project`, `--task`, and `--tag`; pass the description as one quoted positional argument.\n\n");
+    out.push_str("- Timer start accepts `--project`, `--task`, and `--tag`; pass the description as one quoted positional argument.\n");
+    out.push_str("- Timer resume copies project, task, tags, and description from a recent entry; `-1` selects the newest entry.\n\n");
 }
 
 fn push_safety(out: &mut String) {
@@ -419,13 +421,16 @@ fn push_recipes(
         "- Stop a timer: `cfd timer stop{workspace_flag}`.\n"
     ));
     out.push_str(&format!(
+        "- Resume the newest prior entry: `cfd timer resume -1{workspace_flag}`.\n"
+    ));
+    out.push_str(&format!(
         "- Reuse prior descriptions: `cfd entry text list{workspace_flag} --project {project_id} --format json`.\n\n"
     ));
 }
 
 fn push_rounding_and_overlaps(out: &mut String) {
     out.push_str("## Rounding And Overlaps\n\n");
-    out.push_str("- Rounding applies to `entry add`, `entry update`, `timer start`, and `timer stop` unless `--no-rounding` is present.\n");
+    out.push_str("- Rounding applies to `entry add`, `entry update`, `timer start`, `timer stop`, and `timer resume` unless `--no-rounding` is present.\n");
     out.push_str("- Active rounding resolves from `CFD_ROUNDING`, stored config, then `off`.\n");
     out.push_str("- Overlap warnings are not hard errors, but they require confirmation unless `-y` is present.\n");
     out.push_str("- `-y` skips the prompt, not overlap detection.\n\n");

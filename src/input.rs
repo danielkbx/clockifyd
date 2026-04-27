@@ -8,6 +8,12 @@ pub fn confirm(prompt: &str) -> Result<bool, CfdError> {
     confirm_with_reader(prompt, &mut reader)
 }
 
+pub(crate) fn confirm_default_yes(prompt: &str) -> Result<bool, CfdError> {
+    let stdin = io::stdin();
+    let mut reader = stdin.lock();
+    confirm_default_yes_with_reader(prompt, &mut reader)
+}
+
 pub(crate) fn prompt_line_with_io(
     prompt: &str,
     reader: &mut dyn BufRead,
@@ -28,6 +34,18 @@ fn confirm_with_reader(prompt: &str, reader: &mut dyn BufRead) -> Result<bool, C
     let mut line = String::new();
     reader.read_line(&mut line)?;
     Ok(matches!(line.trim(), "y" | "Y" | "yes" | "YES"))
+}
+
+fn confirm_default_yes_with_reader(
+    prompt: &str,
+    reader: &mut dyn BufRead,
+) -> Result<bool, CfdError> {
+    eprint!("{prompt} [Y/n]: ");
+    io::stderr().flush()?;
+
+    let mut line = String::new();
+    reader.read_line(&mut line)?;
+    Ok(matches!(line.trim(), "" | "y" | "Y" | "yes" | "YES"))
 }
 
 pub(crate) fn select_index_with_io(
@@ -71,6 +89,21 @@ mod tests {
     fn confirm_defaults_to_no() {
         let mut reader = Cursor::new("\n");
         assert!(!confirm_with_reader("Proceed?", &mut reader).unwrap());
+    }
+
+    #[test]
+    fn confirm_default_yes_accepts_empty() {
+        let mut reader = Cursor::new("\n");
+        assert!(confirm_default_yes_with_reader("Proceed?", &mut reader).unwrap());
+    }
+
+    #[test]
+    fn confirm_default_yes_rejects_no_and_unknown() {
+        let mut reader = Cursor::new("n\n");
+        assert!(!confirm_default_yes_with_reader("Proceed?", &mut reader).unwrap());
+
+        let mut reader = Cursor::new("maybe\n");
+        assert!(!confirm_default_yes_with_reader("Proceed?", &mut reader).unwrap());
     }
 
     #[test]

@@ -101,6 +101,7 @@ cfd today
 cfd timer current
 cfd timer start [description] [--project <id>] [--task <id>] [--tag <id>] [--no-rounding]
 cfd timer stop [--end <iso>] [--no-rounding] [-y]
+cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <iso>] [--no-rounding] [-y]
 ```
 
 Timer aliases are local config entries under `aliases`. `alias create` is interactive in a TTY and must render defaults like ytd: `Select Project [Project One]:`, `Select Task [none]:`, and `Description [Existing description]:`. Use `--task none` and `--description none` to clear optional stored values.
@@ -185,7 +186,8 @@ Credential and settings resolution order:
 - `login` prompts for the Clockify API key, validates credentials by loading workspaces, and can store default workspace/project/rounding.
 - `config interactive` reuses the existing API key from env or config and updates workspace/project/rounding.
 - Mutating time commands apply configured rounding unless `--no-rounding` is present.
-- Overlap warnings apply to `entry add`, `entry update`, `timer start`, and `timer stop`.
+- `timer resume` copies project/task/tags/description from a recent entry, uses a fresh start time, and supports `-1` through `-9` for direct recent-entry selection.
+- Overlap warnings apply to `entry add`, `entry update`, `timer start`, `timer stop`, and `timer resume`.
 - Overlap is warning plus confirmation, not a hard error.
 - `-y` skips confirmation prompts but must not skip overlap detection.
 

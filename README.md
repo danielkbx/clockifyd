@@ -1,5 +1,8 @@
 # cfd - Clockify CLI
 
+[![CI](https://github.com/danielkbx/clockifyd/actions/workflows/ci.yml/badge.svg)](https://github.com/danielkbx/clockifyd/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/danielkbx/clockifyd)](https://github.com/danielkbx/clockifyd/releases/latest)
+
 `cfd` is a command-line client for Clockify. It works with workspaces, projects, clients, tags, tasks, time entries, running timers, stored defaults, and configurable rounding.
 
 The default output is compact plain text. Use JSON when you want scriptable output, or `--columns` when you want tab-separated rows.
@@ -301,11 +304,14 @@ cfd entry text list --columns text,lastUsed
 
 ```bash
 cfd timer current
-cfd timer start [description] [--project <project-id>] [--task <task-id>] [--no-rounding]
+cfd timer start [description] [--project <project-id>] [--task <task-id>] [--tag <tag-id>] [--no-rounding]
 cfd timer stop [--end <iso>] [--no-rounding] [-y]
+cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <iso>] [--no-rounding] [-y]
 ```
 
 `timer start` accepts the description as one optional positional argument. Use quotes for descriptions with spaces. `timer stop` uses the current time unless you pass an explicit `--end`.
+
+`timer resume` starts a new timer from a recent time entry. Without a numeric selector it shows the 10 most recent entries and prompts for a selection. Use `-1` for the newest entry, `-2` for the second newest, through `-9`. Direct resume shows the selected entry and asks `Resume this entry? [Y/n]:`; pressing Enter confirms, and `-y` skips the prompt. The new timer copies project, task, tags, and description, but uses a fresh start time.
 
 ### Aliases
 
@@ -468,7 +474,7 @@ cfd entry add --start <iso> --duration 20m --no-rounding
 cfd timer stop --no-rounding
 ```
 
-Rounding applies to `entry add`, `entry update`, `timer start`, and `timer stop`.
+Rounding applies to `entry add`, `entry update`, `timer start`, `timer stop`, and `timer resume`.
 
 When a mutating command would create overlapping entries for the current user, `cfd` warns on stderr and asks for confirmation. Use `-y` to continue without the prompt. If rounding causes `end <= start`, retry with `--no-rounding`.
 
@@ -483,7 +489,7 @@ Use the `id` values printed by `cfd` as input to later commands.
 | Client | Clockify client ID returned by `client list` |
 | Tag | Clockify tag ID returned by `tag list` |
 | Task | Clockify task ID plus project ID |
-| Entry | Clockify time entry ID returned by `entry list`, `entry get`, `entry add`, `timer start`, or `timer stop` |
+| Entry | Clockify time entry ID returned by `entry list`, `entry get`, `entry add`, `timer start`, `timer stop`, or `timer resume` |
 
 `task get` requires both project ID and task ID.
 

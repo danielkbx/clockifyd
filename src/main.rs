@@ -259,7 +259,7 @@ fn is_known_command(resource: &str, action: Option<&str>, subaction: Option<&str
             )
             | ("entry", Some("text"), Some("list"))
             | ("today", None, None)
-            | ("timer", Some("current" | "start" | "stop"), None)
+            | ("timer", Some("current" | "start" | "stop" | "resume"), None)
             | ("completion", Some("bash" | "zsh" | "fish"), None)
     )
 }
