@@ -60,6 +60,8 @@ Specific coverage:
 16. `skill` produces current agent guidance without requiring auth unless workspace/project context is passed
 17. `skill --workspace <id>` resolves and embeds workspace context
 18. `skill --workspace <id> --project <id>` resolves and embeds workspace/project context
+19. `today` renders an ASCII table with `Project`, `Task`, `Description`, `Time`, `Duration`, includes a `Total` row, and `--format json|raw` returns raw time-entry JSON
+20. `today --columns <list>` fails clearly and directs users to `entry list --start today --end today --columns <list>`
 
 ## Rust-specific Notes
 
@@ -97,6 +99,7 @@ Important process rules:
 | API Guard | `09-api-compat-guard.md` | request shapes and risky integrations |
 | Agent Skill Generation | `10-agent-skill-generation.md` | generic skill output, scopes, update instructions |
 | Workspace Agent Skill Generation | `11-workspace-agent-skill-generation.md` | workspace/project-specific skill output and semantic review |
+| Today Summary | `12-today-summary.md` | daily ASCII table, total row, JSON compatibility, running entry display |
 
 ## Conventions
 

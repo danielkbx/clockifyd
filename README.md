@@ -254,6 +254,8 @@ cfd entry get <id> [--columns <list>]
 cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
 cfd entry update <id> --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
 cfd entry delete <id> [-y]
+
+cfd today
 ```
 
 Entry fields:
@@ -266,6 +268,17 @@ Entry fields:
 ```
 
 `today` and `yesterday` use the local process timezone. Create and update commands print only the entry ID. Delete prompts unless `-y` is passed.
+
+### Today Summary
+
+```bash
+cfd today
+cfd today --format json
+```
+
+`cfd today` shows today's entries as an ASCII table with a total row. The text columns are `Project`, `Task`, `Description`, `Time`, and `Duration`. Running entries are displayed as `HH:MM-now` and count toward the total.
+
+`--format json` and `--format raw` return the raw time-entry JSON array, matching `cfd entry list --start today --end today --format json`. Use `entry list --start today --end today --columns <list>` when you need tab-separated columns.
 
 ### Entry Text Reuse
 
@@ -397,6 +410,7 @@ cfd entry update <entry-id> --start 2026-04-26T09:00:00Z --duration 2h --descrip
 ### List Today's Entries
 
 ```bash
+cfd today
 cfd entry list --start today --end today --columns start,end,duration,description
 ```
 

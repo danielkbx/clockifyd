@@ -77,3 +77,4 @@ Examples:
 9. `09-api-compat-guard.md`
 10. `10-agent-skill-generation.md`
 11. `11-workspace-agent-skill-generation.md`
+12. `12-today-summary.md`

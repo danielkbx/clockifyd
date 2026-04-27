@@ -91,6 +91,8 @@ cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rou
 cfd entry update <id> --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
 cfd entry delete <id> [-y]
 
+cfd today
+
 cfd timer current
 cfd timer start [fields...] [--no-rounding]
 cfd timer stop [--end <iso>] [--no-rounding] [-y]
@@ -121,6 +123,8 @@ Entry and timer fields:
 Create and update commands output only the created or updated resource ID on stdout.
 
 Text output is line-based (`key: value`) by default, with blank lines between list items.
+
+`cfd today` text output is an ASCII table with columns `Project`, `Task`, `Description`, `Time`, and `Duration`, plus a final `Total` row. Running entries display `HH:MM-now` and count toward the total. `cfd today --format json` and `--format raw` return the raw time-entry JSON array.
 
 `--columns` rules:
 

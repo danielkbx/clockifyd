@@ -30,6 +30,7 @@ src/
     tag.rs          <- tag list/get
     task.rs         <- task list/get/create
     entry.rs        <- time-entry list/get/add/update/delete
+    today.rs        <- daily time-entry summary table
     timer.rs        <- timer current/start/stop
 tests/              <- subprocess CLI coverage
 user-journeys/      <- real-workspace verification flows
@@ -147,6 +148,8 @@ Clockify API endpoints used by `cfd`:
 - `GET /v1/workspaces/{workspaceId}/time-entries/status/in-progress`
 - `PATCH /v1/workspaces/{workspaceId}/user/{userId}/time-entries`
 
+`cfd today` uses the existing current-user time-entry list endpoint with today's local start/end boundaries and loads projects for display names.
+
 ## Config Module
 
 `config.rs` owns:
@@ -169,6 +172,8 @@ field: value
 ```
 
 List commands print blank lines between items.
+
+`cfd today` is the exception to line-based default text: it prints an ASCII table with columns `Project`, `Task`, `Description`, `Time`, and `Duration`, followed by a `Total` row. JSON/raw output remains the raw time-entry array.
 
 JSON output uses `--format json`. `--format raw` is accepted as an alias for compatibility.
 

@@ -251,6 +251,7 @@ pub fn cli_spec() -> CommandSpec {
                     ),
                 ],
             ),
+            leaf("today", "Show today's time entries"),
             command(
                 "timer",
                 "Manage running timer",
@@ -494,6 +495,7 @@ mod tests {
                 "tag",
                 "task",
                 "entry",
+                "today",
                 "timer",
                 "completion",
             ]
@@ -585,6 +587,7 @@ mod tests {
         assert!(paths.contains(&vec!["workspace", "list"]));
         assert!(paths.contains(&vec!["config", "set", "rounding"]));
         assert!(paths.contains(&vec!["entry", "text", "list"]));
+        assert!(paths.contains(&vec!["today"]));
     }
 
     #[test]

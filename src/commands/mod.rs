@@ -11,6 +11,7 @@ pub mod skill;
 pub mod tag;
 pub mod task;
 pub mod timer;
+pub mod today;
 pub mod whoami;
 pub mod workspace;
 
