@@ -105,7 +105,7 @@ Global flags:
   -y                        Skip confirmation prompts
 
 AI agents can run `cfd skill` to get current cfd usage instructions.
-Use `cfd skill --workspace <workspace-id>` for workspace-specific examples.
+Use `cfd skill --workspace <workspace-id> [--project <project-id>]` for workspace/project-specific examples.
 
 Run `cfd help <command>` or `cfd <command> help` for command help."
         .into()
@@ -113,7 +113,7 @@ Run `cfd help <command>` or `cfd <command> help` for command help."
 
 fn skill_help() -> String {
     "Usage:
-  cfd skill [--scope brief|standard|full] [--workspace <workspace-id>]
+  cfd skill [--scope brief|standard|full] [--workspace <workspace-id> [--project <project-id>]]
 
 Generate the latest SKILL.md content for AI agents using cfd.
 
@@ -124,6 +124,7 @@ Redirect stdout to SKILL.md when a persistent skill file is wanted.
 Options:
   --scope brief|standard|full   Detail level for the generated skill; default: standard
   --workspace <workspace-id>    Resolve workspace and include workspace-specific context/examples
+  --project <project-id>        Resolve project in the workspace and include project-specific context/examples
 
 Formats:
   --format text                 Print Markdown; default
@@ -133,7 +134,7 @@ Examples:
   cfd skill
   cfd skill --scope brief
   cfd skill --workspace <workspace-id>
-  cfd skill --workspace <workspace-id> --scope full > SKILL.md"
+  cfd skill --workspace <workspace-id> --project <project-id> --scope full > SKILL.md"
         .into()
 }
 

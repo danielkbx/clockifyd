@@ -1,6 +1,9 @@
 use crate::args::ParsedArgs;
 use crate::error::CfdError;
-use crate::types::Workspace;
+use crate::types::{Project, Workspace};
+
+const SKILL_USAGE: &str =
+    "usage: cfd skill [--scope brief|standard|full] [--workspace <workspace-id> [--project <project-id>]]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SkillScope {
@@ -37,6 +40,12 @@ pub struct SkillWorkspaceContext {
     name: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkillProjectContext {
+    id: String,
+    name: String,
+}
+
 impl From<Workspace> for SkillWorkspaceContext {
     fn from(workspace: Workspace) -> Self {
         Self {
@@ -46,19 +55,39 @@ impl From<Workspace> for SkillWorkspaceContext {
     }
 }
 
+impl From<Project> for SkillProjectContext {
+    fn from(project: Project) -> Self {
+        Self {
+            id: project.id,
+            name: project.name,
+        }
+    }
+}
+
 pub fn workspace_ref(args: &ParsedArgs) -> Result<Option<&str>, CfdError> {
     match args.flags.get("workspace").map(String::as_str) {
         None => Ok(None),
-        Some("true") | Some("") => Err(CfdError::message(
-            "usage: cfd skill [--scope brief|standard|full] [--workspace <workspace-id>]",
-        )),
+        Some("true") | Some("") => Err(CfdError::message(SKILL_USAGE)),
         Some(workspace) => Ok(Some(workspace)),
+    }
+}
+
+pub fn project_ref(args: &ParsedArgs) -> Result<Option<&str>, CfdError> {
+    match args.flags.get("project").map(String::as_str) {
+        None => Ok(None),
+        Some("true") | Some("") => Err(CfdError::message(SKILL_USAGE)),
+        Some(project) => Ok(Some(project)),
     }
 }
 
 pub fn validate(args: &ParsedArgs) -> Result<(), CfdError> {
     SkillScope::parse(args.flags.get("scope").map(String::as_str))?;
-    workspace_ref(args)?;
+    let workspace = workspace_ref(args)?;
+    let project = project_ref(args)?;
+
+    if project.is_some() && workspace.is_none() {
+        return Err(CfdError::message(SKILL_USAGE));
+    }
 
     match args.flags.get("format").map(String::as_str) {
         None | Some("text" | "md") => Ok(()),
@@ -68,32 +97,46 @@ pub fn validate(args: &ParsedArgs) -> Result<(), CfdError> {
     }
 }
 
-pub fn run(workspace: Option<SkillWorkspaceContext>, args: &ParsedArgs) -> Result<(), CfdError> {
+pub fn run(
+    workspace: Option<SkillWorkspaceContext>,
+    project: Option<SkillProjectContext>,
+    args: &ParsedArgs,
+) -> Result<(), CfdError> {
     validate(args)?;
     let scope = SkillScope::parse(args.flags.get("scope").map(String::as_str))?;
-    println!("{}", render_skill(scope, workspace.as_ref()));
+    println!(
+        "{}",
+        render_skill(scope, workspace.as_ref(), project.as_ref())
+    );
     Ok(())
 }
 
-fn render_skill(scope: SkillScope, workspace: Option<&SkillWorkspaceContext>) -> String {
+fn render_skill(
+    scope: SkillScope,
+    workspace: Option<&SkillWorkspaceContext>,
+    project: Option<&SkillProjectContext>,
+) -> String {
     let mut out = String::new();
-    push_frontmatter(&mut out, workspace);
+    push_frontmatter(&mut out, workspace, project);
     push_intro(&mut out);
     push_when_to_use(&mut out);
-    push_version(&mut out, scope, workspace);
+    push_version(&mut out, scope, workspace, project);
     if let Some(workspace) = workspace {
         push_workspace_context(&mut out, workspace);
     }
+    if let Some(project) = project {
+        push_project_context(&mut out, project);
+    }
     push_help_guidance(&mut out);
     push_output_rules(&mut out);
-    push_core_commands(&mut out, workspace);
-    push_ids_and_scope(&mut out, workspace);
+    push_core_commands(&mut out, workspace, project);
+    push_ids_and_scope(&mut out, workspace, project);
     push_safety(&mut out);
 
     if matches!(scope, SkillScope::Standard | SkillScope::Full) {
         push_workflow(&mut out);
-        push_examples(&mut out, workspace);
-        push_recipes(&mut out, workspace);
+        push_examples(&mut out, workspace, project);
+        push_recipes(&mut out, workspace, project);
         push_rounding_and_overlaps(&mut out);
         push_work_logs_boundary(&mut out);
     }
@@ -105,9 +148,13 @@ fn render_skill(scope: SkillScope, workspace: Option<&SkillWorkspaceContext>) ->
     out.trim_end().to_string()
 }
 
-fn push_frontmatter(out: &mut String, workspace: Option<&SkillWorkspaceContext>) {
+fn push_frontmatter(
+    out: &mut String,
+    workspace: Option<&SkillWorkspaceContext>,
+    project: Option<&SkillProjectContext>,
+) {
     out.push_str("---\n");
-    out.push_str(&format!("name: {}\n", skill_name(workspace)));
+    out.push_str(&format!("name: {}\n", skill_name(workspace, project)));
     match workspace {
         Some(workspace) => {
             out.push_str("description: >-\n");
@@ -124,13 +171,19 @@ fn push_frontmatter(out: &mut String, workspace: Option<&SkillWorkspaceContext>)
     out.push_str("---\n\n");
 }
 
-fn skill_name(workspace: Option<&SkillWorkspaceContext>) -> String {
-    let base = "cfd-clockify-time-tracking";
-    let Some(workspace) = workspace else {
+fn skill_name(
+    workspace: Option<&SkillWorkspaceContext>,
+    project: Option<&SkillProjectContext>,
+) -> String {
+    let base = "clockify";
+    let suffix_source = project
+        .map(|project| (project.name.as_str(), project.id.as_str()))
+        .or_else(|| workspace.map(|workspace| (workspace.name.as_str(), workspace.id.as_str())));
+    let Some((name, id)) = suffix_source else {
         return base.to_string();
     };
-    let suffix = sanitize_skill_name_part(&workspace.name)
-        .or_else(|| sanitize_skill_name_part(&workspace.id))
+    let suffix = sanitize_skill_name_part(name)
+        .or_else(|| sanitize_skill_name_part(id))
         .unwrap_or_default();
     if suffix.is_empty() {
         return base.to_string();
@@ -180,7 +233,12 @@ fn push_when_to_use(out: &mut String) {
     out.push_str("- Do not use this for generic YouTrack, Jira, GitHub, or issue tracker work logs unless the user explicitly asks for Clockify/cfd time entries.\n\n");
 }
 
-fn push_version(out: &mut String, scope: SkillScope, workspace: Option<&SkillWorkspaceContext>) {
+fn push_version(
+    out: &mut String,
+    scope: SkillScope,
+    workspace: Option<&SkillWorkspaceContext>,
+    project: Option<&SkillProjectContext>,
+) {
     let version = env!("CARGO_PKG_VERSION");
     out.push_str("## Keeping This Skill Current\n\n");
     out.push_str(&format!("This skill was generated for cfd {version}.\n\n"));
@@ -190,18 +248,28 @@ fn push_version(out: &mut String, scope: SkillScope, workspace: Option<&SkillWor
         "If the installed cfd version is newer than {version}, regenerate this skill with the same command shape:\n\n"
     ));
     out.push_str("```bash\n");
-    out.push_str(&regeneration_command(scope, workspace));
+    out.push_str(&regeneration_command(scope, workspace, project));
     out.push_str("\n```\n\n");
 }
 
-fn regeneration_command(scope: SkillScope, workspace: Option<&SkillWorkspaceContext>) -> String {
-    match workspace {
-        Some(workspace) => format!(
+fn regeneration_command(
+    scope: SkillScope,
+    workspace: Option<&SkillWorkspaceContext>,
+    project: Option<&SkillProjectContext>,
+) -> String {
+    match (workspace, project) {
+        (Some(workspace), Some(project)) => format!(
+            "cfd skill --workspace {} --project {} --scope {} > SKILL.md",
+            workspace.id,
+            project.id,
+            scope.as_str()
+        ),
+        (Some(workspace), None) => format!(
             "cfd skill --workspace {} --scope {} > SKILL.md",
             workspace.id,
             scope.as_str()
         ),
-        None => format!("cfd skill --scope {} > SKILL.md", scope.as_str()),
+        (None, _) => format!("cfd skill --scope {} > SKILL.md", scope.as_str()),
     }
 }
 
@@ -210,6 +278,13 @@ fn push_workspace_context(out: &mut String, workspace: &SkillWorkspaceContext) {
     out.push_str("Default Clockify workspace for examples:\n");
     out.push_str(&format!("- Name: {}\n", workspace.name));
     out.push_str(&format!("- ID: {}\n\n", workspace.id));
+}
+
+fn push_project_context(out: &mut String, project: &SkillProjectContext) {
+    out.push_str("## Project Context\n\n");
+    out.push_str("Default Clockify project for examples:\n");
+    out.push_str(&format!("- Name: {}\n", project.name));
+    out.push_str(&format!("- ID: {}\n\n", project.id));
 }
 
 fn push_help_guidance(out: &mut String) {
@@ -229,31 +304,40 @@ fn push_output_rules(out: &mut String) {
     out.push_str("- `--format raw` is a compatibility alias for JSON on normal cfd commands. `cfd skill` supports only `--format text` and `--format md`.\n\n");
 }
 
-fn push_core_commands(out: &mut String, workspace: Option<&SkillWorkspaceContext>) {
+fn push_core_commands(
+    out: &mut String,
+    workspace: Option<&SkillWorkspaceContext>,
+    project: Option<&SkillProjectContext>,
+) {
     let workspace_flag = workspace_flag(workspace);
+    let project_id = project_id(project);
     out.push_str("## Core Time Tracking Commands\n\n");
     out.push_str("```bash\n");
     out.push_str("cfd workspace list --format json\n");
     out.push_str(&format!("cfd project list{workspace_flag} --format json\n"));
     out.push_str(&format!(
-        "cfd task list{workspace_flag} --project <project-id> --format json\n"
+        "cfd task list{workspace_flag} --project {project_id} --format json\n"
     ));
     out.push_str(&format!(
         "cfd entry list{workspace_flag} --start today --end today --format json\n"
     ));
-    out.push_str(&format!("cfd entry add{workspace_flag} --start <iso> --duration <duration> --project <project-id> --description \"<work>\"\n"));
+    out.push_str(&format!("cfd entry add{workspace_flag} --start <iso> --duration <duration> --project {project_id} --description \"<work>\"\n"));
     out.push_str(&format!("cfd entry update{workspace_flag} <entry-id> --start <iso> --duration <duration> --description \"<work>\"\n"));
     out.push_str(&format!(
         "cfd timer current{workspace_flag} --format json\n"
     ));
     out.push_str(&format!(
-        "cfd timer start{workspace_flag} --project <project-id> --description \"<work>\"\n"
+        "cfd timer start{workspace_flag} --project {project_id} --description \"<work>\"\n"
     ));
     out.push_str(&format!("cfd timer stop{workspace_flag}\n"));
     out.push_str("```\n\n");
 }
 
-fn push_ids_and_scope(out: &mut String, workspace: Option<&SkillWorkspaceContext>) {
+fn push_ids_and_scope(
+    out: &mut String,
+    workspace: Option<&SkillWorkspaceContext>,
+    project: Option<&SkillProjectContext>,
+) {
     out.push_str("## IDs And Scope\n\n");
     if let Some(workspace) = workspace {
         out.push_str(&format!(
@@ -262,6 +346,12 @@ fn push_ids_and_scope(out: &mut String, workspace: Option<&SkillWorkspaceContext
         ));
     } else {
         out.push_str("- Run `cfd workspace list --format json` and confirm the workspace when workspace scope is ambiguous.\n");
+    }
+    if let Some(project) = project {
+        out.push_str(&format!(
+            "- Use project `{}` for project-scoped examples unless the user gives a different project.\n",
+            project.id
+        ));
     }
     out.push_str("- Use IDs returned by JSON output for follow-up commands.\n");
     out.push_str("- `task get` requires both project ID and task ID.\n");
@@ -287,8 +377,13 @@ fn push_workflow(out: &mut String) {
     out.push_str("5. For destructive or overlapping changes, explain the exact target before continuing.\n\n");
 }
 
-fn push_examples(out: &mut String, workspace: Option<&SkillWorkspaceContext>) {
+fn push_examples(
+    out: &mut String,
+    workspace: Option<&SkillWorkspaceContext>,
+    project: Option<&SkillProjectContext>,
+) {
     let workspace_flag = workspace_flag(workspace);
+    let project_id = project_id(project);
     out.push_str("## Examples\n\n");
     out.push_str("```bash\n");
     out.push_str(&format!(
@@ -296,29 +391,34 @@ fn push_examples(out: &mut String, workspace: Option<&SkillWorkspaceContext>) {
     ));
     out.push_str(&format!("cfd entry list{workspace_flag} --start today --end today --columns start,end,duration,description\n"));
     out.push_str(&format!(
-        "cfd entry text list{workspace_flag} --project <project-id> --columns text,lastUsed\n"
+        "cfd entry text list{workspace_flag} --project {project_id} --columns text,lastUsed\n"
     ));
-    out.push_str(&format!("cfd timer start{workspace_flag} --project <project-id> --description \"ABC-1: Implement feature\"\n"));
+    out.push_str(&format!("cfd timer start{workspace_flag} --project {project_id} --description \"ABC-1: Implement feature\"\n"));
     out.push_str("```\n\n");
 }
 
-fn push_recipes(out: &mut String, workspace: Option<&SkillWorkspaceContext>) {
+fn push_recipes(
+    out: &mut String,
+    workspace: Option<&SkillWorkspaceContext>,
+    project: Option<&SkillProjectContext>,
+) {
     let workspace_flag = workspace_flag(workspace);
+    let project_id = project_id(project);
     out.push_str("## Common Recipes\n\n");
     out.push_str(&format!(
         "- Find today’s tracked time: `cfd entry list{workspace_flag} --start today --end today --format json`.\n"
     ));
     out.push_str(&format!(
-        "- Add a manual entry: `cfd entry add{workspace_flag} --start <iso> --duration 30m --project <project-id> --description \"<work>\"`.\n"
+        "- Add a manual entry: `cfd entry add{workspace_flag} --start <iso> --duration 30m --project {project_id} --description \"<work>\"`.\n"
     ));
     out.push_str(&format!(
-        "- Start a timer: `cfd timer start{workspace_flag} --project <project-id> --description \"<work>\"`.\n"
+        "- Start a timer: `cfd timer start{workspace_flag} --project {project_id} --description \"<work>\"`.\n"
     ));
     out.push_str(&format!(
         "- Stop a timer: `cfd timer stop{workspace_flag}`.\n"
     ));
     out.push_str(&format!(
-        "- Reuse prior descriptions: `cfd entry text list{workspace_flag} --project <project-id> --format json`.\n\n"
+        "- Reuse prior descriptions: `cfd entry text list{workspace_flag} --project {project_id} --format json`.\n\n"
     ));
 }
 
@@ -366,7 +466,7 @@ fn push_full_reference(out: &mut String) {
     out.push_str("- API key resolution: `CLOCKIFY_API_KEY` then stored config.\n");
     out.push_str("- Workspace resolution for normal commands: `--workspace`, `CFD_WORKSPACE`, stored config.\n");
     out.push_str("- Project defaults apply where commands support stored project resolution.\n");
-    out.push_str("- `cfd skill` becomes workspace-specific only with explicit `--workspace`.\n\n");
+    out.push_str("- `cfd skill` becomes workspace- or project-specific only with explicit `--workspace` and optional `--project`.\n\n");
     out.push_str("## Troubleshooting\n\n");
     out.push_str("- `missing Clockify API key` means login/config/env credentials are absent.\n");
     out.push_str("- `missing workspace` means pass `--workspace`, set `CFD_WORKSPACE`, or store a workspace.\n");
@@ -378,6 +478,12 @@ fn workspace_flag(workspace: Option<&SkillWorkspaceContext>) -> String {
     workspace
         .map(|workspace| format!(" --workspace {}", workspace.id))
         .unwrap_or_default()
+}
+
+fn project_id(project: Option<&SkillProjectContext>) -> &str {
+    project
+        .map(|project| project.id.as_str())
+        .unwrap_or("<project-id>")
 }
 
 #[cfg(test)]
@@ -409,6 +515,13 @@ mod tests {
         SkillWorkspaceContext {
             id: "w1".into(),
             name: "Engineering Platform".into(),
+        }
+    }
+
+    fn project() -> SkillProjectContext {
+        SkillProjectContext {
+            id: "p1".into(),
+            name: "Platform".into(),
         }
     }
 
@@ -456,8 +569,8 @@ mod tests {
 
     #[test]
     fn output_has_frontmatter_with_time_tracking_boundary() {
-        let text = render_skill(SkillScope::Brief, None);
-        assert!(text.starts_with("---\nname: cfd-clockify-time-tracking\ndescription: >-\n"));
+        let text = render_skill(SkillScope::Brief, None, None);
+        assert!(text.starts_with("---\nname: clockify\ndescription: >-\n"));
         assert!(text.contains("Clockify time tracking"));
         assert!(text.contains("work logs"));
         assert!(text.contains("not generic issue tracker work logs"));
@@ -469,24 +582,43 @@ mod tests {
             id: "w1".into(),
             name: "Engineering_Platform 42!".into(),
         };
-        let text = render_skill(SkillScope::Brief, Some(&workspace));
-        assert!(text.contains("name: cfd-clockify-time-tracking-engineering-platform-42\n"));
+        let text = render_skill(SkillScope::Brief, Some(&workspace), None);
+        assert!(text.contains("name: clockify-engineering-platform-42\n"));
+    }
+
+    #[test]
+    fn project_name_takes_precedence_for_skill_name() {
+        let text = render_skill(SkillScope::Brief, Some(&workspace()), Some(&project()));
+        assert!(text.contains("name: clockify-platform\n"));
+        assert!(!text.contains("name: clockify-engineering-platform\n"));
     }
 
     #[test]
     fn workspace_context_only_appears_when_workspace_exists() {
-        let generic = render_skill(SkillScope::Brief, None);
+        let generic = render_skill(SkillScope::Brief, None, None);
         assert!(!generic.contains("## Workspace Context"));
 
-        let text = render_skill(SkillScope::Brief, Some(&workspace()));
+        let text = render_skill(SkillScope::Brief, Some(&workspace()), None);
         assert!(text.contains("## Workspace Context"));
         assert!(text.contains("- Name: Engineering Platform"));
         assert!(text.contains("- ID: w1"));
     }
 
     #[test]
+    fn project_context_only_appears_when_project_exists() {
+        let workspace = workspace();
+        let generic = render_skill(SkillScope::Brief, Some(&workspace), None);
+        assert!(!generic.contains("## Project Context"));
+
+        let text = render_skill(SkillScope::Brief, Some(&workspace), Some(&project()));
+        assert!(text.contains("## Project Context"));
+        assert!(text.contains("- Name: Platform"));
+        assert!(text.contains("- ID: p1"));
+    }
+
+    #[test]
     fn regeneration_command_uses_effective_scope() {
-        let text = render_skill(SkillScope::Standard, None);
+        let text = render_skill(SkillScope::Standard, None, None);
         assert!(text.contains(env!("CARGO_PKG_VERSION")));
         assert!(text.contains("cfd --version"));
         assert!(text.contains("cfd skill --scope standard > SKILL.md"));
@@ -494,15 +626,31 @@ mod tests {
 
     #[test]
     fn workspace_regeneration_command_uses_resolved_id() {
-        let text = render_skill(SkillScope::Full, Some(&workspace()));
+        let text = render_skill(SkillScope::Full, Some(&workspace()), None);
         assert!(text.contains("cfd skill --workspace w1 --scope full > SKILL.md"));
     }
 
     #[test]
+    fn project_regeneration_command_uses_resolved_ids() {
+        let text = render_skill(SkillScope::Full, Some(&workspace()), Some(&project()));
+        assert!(text.contains("cfd skill --workspace w1 --project p1 --scope full > SKILL.md"));
+    }
+
+    #[test]
+    fn project_examples_use_resolved_project_id() {
+        let text = render_skill(SkillScope::Standard, Some(&workspace()), Some(&project()));
+        assert!(text.contains("cfd task list --workspace w1 --project p1 --format json"));
+        assert!(text.contains("cfd entry add --workspace w1 --start <iso> --duration <duration> --project p1 --description \"<work>\""));
+        assert!(text
+            .contains("cfd entry text list --workspace w1 --project p1 --columns text,lastUsed"));
+        assert!(text.contains("cfd timer start --workspace w1 --project p1 --description \"ABC-1: Implement feature\""));
+    }
+
+    #[test]
     fn scopes_increase_in_size_and_detail() {
-        let brief = render_skill(SkillScope::Brief, None);
-        let standard = render_skill(SkillScope::Standard, None);
-        let full = render_skill(SkillScope::Full, None);
+        let brief = render_skill(SkillScope::Brief, None, None);
+        let standard = render_skill(SkillScope::Standard, None, None);
+        let full = render_skill(SkillScope::Full, None, None);
 
         assert!(brief.len() < standard.len());
         assert!(standard.len() < full.len());
@@ -531,7 +679,25 @@ mod tests {
         let error = validate(&parsed).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "usage: cfd skill [--scope brief|standard|full] [--workspace <workspace-id>]"
+            "usage: cfd skill [--scope brief|standard|full] [--workspace <workspace-id> [--project <project-id>]]"
+        );
+    }
+
+    #[test]
+    fn rejects_project_without_workspace() {
+        let error = validate(&args(&[("project", "p1")])).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "usage: cfd skill [--scope brief|standard|full] [--workspace <workspace-id> [--project <project-id>]]"
+        );
+    }
+
+    #[test]
+    fn rejects_missing_project_value() {
+        let error = validate(&args(&[("workspace", "w1"), ("project", "true")])).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "usage: cfd skill [--scope brief|standard|full] [--workspace <workspace-id> [--project <project-id>]]"
         );
     }
 }

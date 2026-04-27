@@ -48,7 +48,7 @@ fn skill_generates_standard_markdown_without_credentials() {
     assert!(stderr(&output).is_empty());
     let text = stdout(&output);
     assert!(text.starts_with("---\n"));
-    assert!(text.contains("name: cfd-clockify-time-tracking"));
+    assert!(text.contains("name: clockify"));
     assert!(text.contains("time tracking"));
     assert!(text.contains("not generic issue tracker work logs"));
     assert!(text.contains("cfd --version"));
@@ -108,6 +108,30 @@ fn workspace_skill_requires_api_key() {
 }
 
 #[test]
+fn project_skill_requires_workspace_before_config_load() {
+    let output = skill_output(&["skill", "--project", "p1"]);
+
+    assert!(!output.status.success());
+    assert_eq!(stdout(&output), "");
+    assert_eq!(
+        stderr(&output),
+        "usage: cfd skill [--scope brief|standard|full] [--workspace <workspace-id> [--project <project-id>]]\n"
+    );
+}
+
+#[test]
+fn project_skill_rejects_missing_project_value() {
+    let output = skill_output(&["skill", "--workspace", "w1", "--project"]);
+
+    assert!(!output.status.success());
+    assert_eq!(stdout(&output), "");
+    assert_eq!(
+        stderr(&output),
+        "usage: cfd skill [--scope brief|standard|full] [--workspace <workspace-id> [--project <project-id>]]\n"
+    );
+}
+
+#[test]
 fn workspace_skill_resolves_workspace_and_includes_context() {
     let server = TestServer::spawn(vec![MockResponse::ok(
         r#"{"id":"w1","name":"Engineering"}"#,
@@ -124,7 +148,7 @@ fn workspace_skill_resolves_workspace_and_includes_context() {
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(stderr(&output).is_empty());
     let text = stdout(&output);
-    assert!(text.contains("name: cfd-clockify-time-tracking-engineering"));
+    assert!(text.contains("name: clockify-engineering"));
     assert!(text.contains("## Workspace Context"));
     assert!(text.contains("- Name: Engineering"));
     assert!(text.contains("- ID: w1"));
@@ -135,4 +159,55 @@ fn workspace_skill_resolves_workspace_and_includes_context() {
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].method, "GET");
     assert_eq!(requests[0].path, "/api/v1/workspaces/w1");
+}
+
+#[test]
+fn project_skill_resolves_workspace_and_project_and_includes_context() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"w1","name":"Engineering"}"#),
+        MockResponse::ok(r#"{"id":"p1","name":"Platform","workspaceId":"w1"}"#),
+    ]);
+
+    let output = bin()
+        .args([
+            "skill",
+            "--workspace",
+            "w1",
+            "--project",
+            "p1",
+            "--scope",
+            "standard",
+        ])
+        .env("CLOCKIFY_API_KEY", "test-key")
+        .env("CFD_BASE_URL", server.base_url())
+        .env_remove("CFD_WORKSPACE")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stderr(&output).is_empty());
+    let text = stdout(&output);
+    assert!(text.contains("name: clockify-platform"));
+    assert!(text.contains("## Workspace Context"));
+    assert!(text.contains("- Name: Engineering"));
+    assert!(text.contains("- ID: w1"));
+    assert!(text.contains("## Project Context"));
+    assert!(text.contains("- Name: Platform"));
+    assert!(text.contains("- ID: p1"));
+    assert!(text.contains("cfd skill --workspace w1 --project p1 --scope standard > SKILL.md"));
+    assert!(text.contains("cfd task list --workspace w1 --project p1 --format json"));
+    assert!(text.contains("cfd entry add --workspace w1 --start <iso> --duration <duration> --project p1 --description \"<work>\""));
+    assert!(
+        text.contains("cfd entry text list --workspace w1 --project p1 --columns text,lastUsed")
+    );
+    assert!(text.contains(
+        "cfd timer start --workspace w1 --project p1 --description \"ABC-1: Implement feature\""
+    ));
+
+    let requests = server.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].method, "GET");
+    assert_eq!(requests[0].path, "/api/v1/workspaces/w1");
+    assert_eq!(requests[1].method, "GET");
+    assert_eq!(requests[1].path, "/api/v1/workspaces/w1/projects/p1");
 }

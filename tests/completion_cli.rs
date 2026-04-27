@@ -31,6 +31,7 @@ fn bash_completion_succeeds() {
     assert!(completion.contains("entry"));
     assert!(completion.contains("--format"));
     assert!(completion.contains("--workspace"));
+    assert!(completion.contains("--project"));
     assert!(completion.contains("json"));
 }
 
@@ -122,6 +123,7 @@ fn zsh_completion_succeeds() {
     assert!(completion.contains("skill"));
     assert!(completion.contains("entry"));
     assert!(completion.contains("--format"));
+    assert!(completion.contains("--project"));
     assert!(completion.contains("json"));
 }
 
@@ -138,6 +140,7 @@ fn fish_completion_succeeds() {
     assert!(completion.contains("skill"));
     assert!(completion.contains("entry"));
     assert!(completion.contains("--format"));
+    assert!(completion.contains("-l project"));
     assert!(completion.contains("json"));
 }
 

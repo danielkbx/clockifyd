@@ -115,6 +115,7 @@ pub fn cli_spec() -> CommandSpec {
                 vec![
                     option_value("scope", "Skill detail level", "scope", SKILL_SCOPE_VALUES),
                     option_value("workspace", "Workspace ID", "id", &[]),
+                    option_value("project", "Project ID", "id", &[]),
                 ],
                 vec![],
                 vec![],

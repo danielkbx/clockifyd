@@ -4,7 +4,7 @@
 
 The default output is compact plain text. Use JSON when you want scriptable output, or `--columns` when you want tab-separated rows.
 
-`cfd` can also generate current `SKILL.md` guidance for AI agents with `cfd skill`. Agents can run that command themselves to fetch up-to-date Clockify time tracking instructions, including workspace-specific examples with `cfd skill --workspace <workspace-id>`.
+`cfd` can also generate current `SKILL.md` guidance for AI agents with `cfd skill`. Agents can run that command themselves to fetch up-to-date Clockify time tracking instructions, including workspace/project-specific examples with `cfd skill --workspace <workspace-id> --project <project-id>`.
 
 ## Installation
 
@@ -183,11 +183,11 @@ cfd help timer
 cfd skill > SKILL.md
 ```
 
-Agents can also run `cfd skill` themselves to fetch up-to-date Clockify time tracking guidance instead of relying on stale checked-in instructions. Add `--workspace <workspace-id>` when the agent should receive workspace-specific examples:
+Agents can also run `cfd skill` themselves to fetch up-to-date Clockify time tracking guidance instead of relying on stale checked-in instructions. Add `--workspace <workspace-id>` when the agent should receive workspace-specific examples, and add `--project <project-id>` when project-scoped examples should use a concrete project:
 
 ```bash
 cfd skill --workspace <workspace-id> > SKILL.md
-cfd skill --workspace <workspace-id> --scope full
+cfd skill --workspace <workspace-id> --project <project-id> --scope full
 ```
 
 ## Command Guide
@@ -203,7 +203,7 @@ cfd help <command>
 cfd <command> help
 cfd --version
 cfd completion <bash|zsh|fish>
-cfd skill [--scope brief|standard|full] [--workspace <workspace-id>]
+cfd skill [--scope brief|standard|full] [--workspace <workspace-id> [--project <project-id>]]
 ```
 
 ### Workspaces And Defaults
@@ -292,10 +292,10 @@ cfd timer stop [--end <iso>] [--no-rounding] [-y]
 ### Agent Skills
 
 ```bash
-cfd skill [--scope brief|standard|full] [--workspace <workspace-id>]
+cfd skill [--scope brief|standard|full] [--workspace <workspace-id> [--project <project-id>]]
 ```
 
-`cfd skill` prints current `SKILL.md` guidance for AI agents working with Clockify time tracking through `cfd`. Without `--workspace`, it works without login. With `--workspace`, it resolves the workspace and includes workspace-specific context and examples.
+`cfd skill` prints current `SKILL.md` guidance for AI agents working with Clockify time tracking through `cfd`. Without `--workspace`, it works without login. With `--workspace`, it resolves the workspace and includes workspace-specific context and examples. With `--workspace` plus `--project`, it also resolves the project and uses that project ID in project-scoped examples.
 
 `cfd skill` supports `--format text` and `--format md`. Both print Markdown. `--format json` and `--format raw` are not supported for this command.
 

@@ -25,8 +25,8 @@ Before implementing any non-trivial task, read all files in `.agents/` and inclu
 
 ## Commits
 
-- Conventional commits: `feat:`, `fix:`, `refactor:`, `test:`, `chore:`
-- Scope optional: `feat(entry): add overlap warning`
+- Conventional commits without scopes: `feat:`, `fix:`, `refactor:`, `test:`, `chore:`
+- Do not use contextual prefixes such as `feat(entry):` or `fix(skill):`
 - Message describes why, not what
 - Stage specific files, never `git add .`
 - Never commit `.env`, API keys, or `target/`

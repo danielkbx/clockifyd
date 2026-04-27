@@ -1,6 +1,6 @@
 # clockifyd - Clockify CLI
 
-`cfd` is the released Clockify CLI for this repository. Current package version: `1.1.0`.
+`cfd` is the released Clockify CLI for this repository. Current package version: `1.2.1`.
 
 The public README is user documentation. This file and `.agents/*.md` are maintainer and agent context.
 
@@ -56,6 +56,7 @@ Core logic (`client.rs`, `config.rs`, `types.rs`, `error.rs`) must have no CLI c
 cfd help / cfd help <command> / cfd <command> help
 cfd --version
 cfd completion <bash|zsh|fish>
+cfd skill [--scope brief|standard|full] [--workspace <id> [--project <id>]]
 cfd login / logout / whoami
 
 cfd workspace list [--columns <list>]

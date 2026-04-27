@@ -97,8 +97,10 @@ fn run() -> Result<(), error::CfdError> {
 
     if resource == "skill" {
         commands::skill::validate(&args)?;
-        if commands::skill::workspace_ref(&args)?.is_none() {
-            return commands::skill::run(None, &args);
+        if commands::skill::workspace_ref(&args)?.is_none()
+            && commands::skill::project_ref(&args)?.is_none()
+        {
+            return commands::skill::run(None, None, &args);
         }
     }
 
@@ -171,11 +173,20 @@ fn run() -> Result<(), error::CfdError> {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let client = client::ClockifyClient::new(api_key, client::UreqTransport);
-            let workspace = commands::skill::workspace_ref(&args)?
+            let workspace_id = commands::skill::workspace_ref(&args)?;
+            let workspace = workspace_id
                 .map(|workspace_id| client.get_workspace(workspace_id))
                 .transpose()?
                 .map(commands::skill::SkillWorkspaceContext::from);
-            commands::skill::run(workspace, &args)
+            let project = match (workspace_id, commands::skill::project_ref(&args)?) {
+                (Some(workspace_id), Some(project_id)) => Some(
+                    client
+                        .get_project(workspace_id, project_id)
+                        .map(commands::skill::SkillProjectContext::from)?,
+                ),
+                _ => None,
+            };
+            commands::skill::run(workspace, project, &args)
         }
         _ => Err(error::CfdError::message(format!(
             "unknown command: cfd {}",
