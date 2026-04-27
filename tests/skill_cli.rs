@@ -200,9 +200,9 @@ fn project_skill_resolves_workspace_and_project_and_includes_context() {
     assert!(
         text.contains("cfd entry text list --workspace w1 --project p1 --columns text,lastUsed")
     );
-    assert!(text.contains(
-        "cfd timer start --workspace w1 --project p1 --description \"ABC-1: Implement feature\""
-    ));
+    assert!(
+        text.contains("cfd timer start \"ABC-1: Implement feature\" --workspace w1 --project p1")
+    );
 
     let requests = server.requests();
     assert_eq!(requests.len(), 2);

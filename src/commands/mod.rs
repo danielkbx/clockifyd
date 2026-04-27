@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub mod alias;
 pub mod client;
 pub mod config;
 pub mod entry;

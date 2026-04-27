@@ -24,6 +24,7 @@ Target areas:
 - `client.rs` - API methods with `MockTransport`
 - `commands/entry.rs` - overlap detection, `--no-rounding`, self-exclusion for updates, `--columns` validation and rendering
 - `commands/timer.rs` - rounding + overlap behavior
+- `commands/alias.rs` - alias validation, ytd-style interactive default rendering, alias text/JSON rendering
 - `commands/task.rs` - create request shape and output contract
 - `commands/login.rs` - interactive login flow and workspace selection
 - `completion.rs` and `cli_spec.rs` - shell completion rendering and CLI drift checks
@@ -62,6 +63,7 @@ Specific coverage:
 18. `skill --workspace <id> --project <id>` resolves and embeds workspace/project context
 19. `today` renders an ASCII table with `Project`, `Task`, `Description`, `Time`, `Duration`, includes a `Total` row, and `--format json|raw` returns raw time-entry JSON
 20. `today --columns <list>` fails clearly and directs users to `entry list --start today --end today --columns <list>`
+21. `alias create|list|delete` manage local aliases, and `cfd <alias> start` starts a timer with stored project/task/description
 
 ## Rust-specific Notes
 
@@ -100,6 +102,7 @@ Important process rules:
 | Agent Skill Generation | `10-agent-skill-generation.md` | generic skill output, scopes, update instructions |
 | Workspace Agent Skill Generation | `11-workspace-agent-skill-generation.md` | workspace/project-specific skill output and semantic review |
 | Today Summary | `12-today-summary.md` | daily ASCII table, total row, JSON compatibility, running entry display |
+| Timer Aliases | `13-timer-aliases.md` | alias create/list/delete, dynamic alias start, interactive default prompts |
 
 ## Conventions
 

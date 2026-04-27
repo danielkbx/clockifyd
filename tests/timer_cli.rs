@@ -65,6 +65,8 @@ fn timer_current_supports_text_json_and_no_meta() {
 
 #[test]
 fn timer_start_reports_running_timer() {
+    let (_dir, config_path) = support::temp_config_path();
+    fs::write(&config_path, "{\n  \"project\": \"p1\"\n}\n").unwrap();
     let server = TestServer::spawn(vec![
         MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
         MockResponse::ok(
@@ -74,6 +76,7 @@ fn timer_start_reports_running_timer() {
 
     let output = bin()
         .args(["timer", "start"])
+        .env("CFD_CONFIG", &config_path)
         .env("CLOCKIFY_API_KEY", "secret")
         .env("CFD_WORKSPACE", "w1")
         .env("CFD_BASE_URL", server.base_url())
@@ -206,10 +209,9 @@ fn timer_start_no_rounding_overrides_config_and_yes_skips_prompt() {
         .args([
             "timer",
             "start",
+            "Run",
             "--start",
             "2026-04-23T09:07:00Z",
-            "--description",
-            "Run",
             "--no-rounding",
             "-y",
         ])
@@ -241,7 +243,7 @@ fn timer_start_requires_project_context() {
     ]);
 
     let output = bin()
-        .args(["timer", "start", "--description", "Run"])
+        .args(["timer", "start", "Run"])
         .env("CFD_CONFIG", &config_path)
         .env("CLOCKIFY_API_KEY", "secret")
         .env("CFD_WORKSPACE", "w1")
@@ -271,12 +273,11 @@ fn timer_start_flag_project_overrides_config() {
         .args([
             "timer",
             "start",
+            "Run",
             "--start",
             "2026-04-23T09:07:00Z",
             "--project",
             "flag-project",
-            "--description",
-            "Run",
             "--no-rounding",
         ])
         .env("CFD_CONFIG", &config_path)
@@ -294,4 +295,44 @@ fn timer_start_flag_project_overrides_config() {
         requests[3].body,
         "{\"description\":\"Run\",\"projectId\":\"flag-project\",\"start\":\"2026-04-23T09:07:00+00:00\"}"
     );
+}
+
+#[test]
+fn timer_start_rejects_description_flag() {
+    let (_dir, config_path) = support::temp_config_path();
+    fs::write(&config_path, "{\n  \"project\": \"p1\"\n}\n").unwrap();
+    let server = TestServer::spawn(vec![]);
+
+    let output = bin()
+        .args(["timer", "start", "--description", "Run"])
+        .env("CFD_CONFIG", &config_path)
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("usage: cfd timer start [description]"));
+    assert!(server.requests().is_empty());
+}
+
+#[test]
+fn timer_start_rejects_multiple_positional_description_tokens() {
+    let (_dir, config_path) = support::temp_config_path();
+    fs::write(&config_path, "{\n  \"project\": \"p1\"\n}\n").unwrap();
+    let server = TestServer::spawn(vec![]);
+
+    let output = bin()
+        .args(["timer", "start", "Run", "extra"])
+        .env("CFD_CONFIG", &config_path)
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("usage: cfd timer start [description]"));
+    assert!(server.requests().is_empty());
 }

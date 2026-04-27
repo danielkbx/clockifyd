@@ -84,7 +84,16 @@ fn run() -> Result<(), error::CfdError> {
         return Ok(());
     }
 
-    if !is_known_command(resource, action, subaction) {
+    let runtime_alias = if is_known_command(resource, action, subaction) {
+        None
+    } else if matches!((action, subaction), (Some("start"), None)) {
+        let config = config::get_config()?;
+        config.aliases.get(resource).cloned()
+    } else {
+        None
+    };
+
+    if runtime_alias.is_none() && !is_known_command(resource, action, subaction) {
         return Err(error::CfdError::message(format!(
             "unknown command: cfd {}{}{}",
             resource,
@@ -120,6 +129,7 @@ fn run() -> Result<(), error::CfdError> {
             commands::workspace::execute(&client, &args)
         }
         ("config", _, _) => commands::config::execute(&args),
+        ("alias", Some("delete"), _) => commands::alias::execute_config_only(&args),
         ("project", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
@@ -176,6 +186,13 @@ fn run() -> Result<(), error::CfdError> {
             let client = client::ClockifyClient::new(api_key, client::UreqTransport);
             commands::timer::execute(&client, &args, &workspace_id, &config)
         }
+        ("alias", _, _) => {
+            let config = config::get_config()?;
+            let api_key = config::resolve_api_key(&config)?;
+            let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            commands::alias::execute(&client, &args, &workspace_id, &args.output)
+        }
         ("skill", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
@@ -194,6 +211,20 @@ fn run() -> Result<(), error::CfdError> {
                 _ => None,
             };
             commands::skill::run(workspace, project, &args)
+        }
+        _ if runtime_alias.is_some() => {
+            let config = config::get_config()?;
+            let api_key = config::resolve_api_key(&config)?;
+            let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            commands::alias::execute_runtime_start(
+                &client,
+                resource,
+                runtime_alias.as_ref().unwrap(),
+                &args,
+                &workspace_id,
+                &config,
+            )
         }
         _ => Err(error::CfdError::message(format!(
             "unknown command: cfd {}",
@@ -216,6 +247,7 @@ fn is_known_command(resource: &str, action: Option<&str>, subaction: Option<&str
                 Some("interactive" | "set" | "get" | "unset"),
                 None
             )
+            | ("alias", Some("create" | "list" | "delete"), None)
             | ("project", Some("list" | "get"), None)
             | ("client", Some("list" | "get"), None)
             | ("tag", Some("list" | "get"), None)

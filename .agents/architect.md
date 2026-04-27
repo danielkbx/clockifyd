@@ -24,6 +24,7 @@ src/
     skill.rs        <- generated SKILL.md guidance for agents
     whoami.rs       <- current user display
     config.rs       <- stored settings (workspace, project, rounding)
+    alias.rs        <- local timer aliases and dynamic alias starts
     workspace.rs    <- workspace list/get
     project.rs      <- project list/get
     client.rs       <- client list/get
@@ -71,6 +72,8 @@ Test transport: `MockTransport`
 Command names must be validated against the known-command routing in `main.rs` before loading config. A typo must not produce misleading auth or workspace errors.
 
 The canonical visible command tree also lives in `src/cli_spec.rs` for completion rendering and drift tests. User-visible command changes must keep `main.rs`, `help.rs`, and `cli_spec.rs` in sync.
+
+Dynamic timer aliases are the exception to static command validation: after built-in commands are checked, `main.rs` may load local config to resolve `cfd <alias> start`. Alias management commands remain static as `cfd alias create|list|delete`.
 
 ## Workspace Resolution
 

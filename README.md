@@ -223,6 +223,11 @@ cfd config unset project
 cfd config set rounding <off|1m|5m|10m|15m>
 cfd config get rounding
 cfd config unset rounding
+
+cfd alias create <alias> [--project <project-id>] [--task <task-id|none>] [--description <text|none>]
+cfd alias list
+cfd alias delete <alias> [-y]
+cfd <alias> start
 ```
 
 `cfd config interactive` updates stored workspace, project, and rounding defaults without asking for the API key again. Defaults reduce repeated `--workspace` and `--project` flags.
@@ -296,11 +301,29 @@ cfd entry text list --columns text,lastUsed
 
 ```bash
 cfd timer current
-cfd timer start [fields...] [--no-rounding]
+cfd timer start [description] [--project <project-id>] [--task <task-id>] [--no-rounding]
 cfd timer stop [--end <iso>] [--no-rounding] [-y]
 ```
 
-`timer start` accepts the same project, task, tag, and description fields as entries. `timer stop` uses the current time unless you pass an explicit `--end`.
+`timer start` accepts the description as one optional positional argument. Use quotes for descriptions with spaces. `timer stop` uses the current time unless you pass an explicit `--end`.
+
+### Aliases
+
+Aliases are local shortcuts for recurring timer starts. They bind a project and can optionally bind a task and description.
+
+```bash
+cfd alias create <alias> [--project <project-id>] [--task <task-id|none>] [--description <text|none>]
+cfd alias list
+cfd alias delete <alias> [-y]
+cfd <alias> start
+```
+
+`alias create` runs interactively in a terminal when values are missing. Defaults are displayed by label, for example `Select Project [Project One]:`. Use `--task none` or `--description none` to clear those optional fields when updating an alias.
+
+```bash
+cfd alias create standup --project <project-id> --description "Daily standup"
+cfd standup start
+```
 
 ### Agent Skills
 
@@ -384,7 +407,7 @@ cfd config get rounding
 ### Start And Stop A Timer
 
 ```bash
-cfd timer start --description "ABC-1: Implement feature"
+cfd timer start "ABC-1: Implement feature"
 cfd timer current
 cfd timer stop
 ```
@@ -392,7 +415,7 @@ cfd timer stop
 With project and task:
 
 ```bash
-cfd timer start --project <project-id> --task <task-id> --description "ABC-1: Implement feature"
+cfd timer start "ABC-1: Implement feature" --project <project-id> --task <task-id>
 ```
 
 ### Add A Manual Entry
@@ -479,7 +502,14 @@ Example:
   "apiKey": "clockify-api-key",
   "workspace": "64a687e29ae1f428e7ebe303",
   "project": "64a687e29ae1f428e7ebe399",
-  "rounding": "15m"
+  "rounding": "15m",
+  "aliases": {
+    "standup": {
+      "project": "64a687e29ae1f428e7ebe399",
+      "task": "64a687e29ae1f428e7ebe400",
+      "description": "Daily standup"
+    }
+  }
 }
 ```
 

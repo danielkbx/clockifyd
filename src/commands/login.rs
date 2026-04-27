@@ -323,6 +323,7 @@ mod tests {
                 workspace: Some("w2".into()),
                 rounding: Some(RoundingMode::TenMinutes),
                 project: Some("p1".into()),
+                ..StoredConfig::default()
             }
         );
         assert!(output.contains("Default workspace: w2\tOps"));
@@ -404,6 +405,7 @@ mod tests {
             workspace: Some("w2".into()),
             project: Some("p2".into()),
             rounding: Some(RoundingMode::TenMinutes),
+            ..StoredConfig::default()
         })
         .unwrap();
 

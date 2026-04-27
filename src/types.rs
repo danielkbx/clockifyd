@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -12,6 +14,17 @@ pub struct StoredConfig {
     pub rounding: Option<RoundingMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub aliases: BTreeMap<String, StoredAlias>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredAlias {
+    pub project: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -172,6 +185,14 @@ mod tests {
             workspace: Some("ws1".into()),
             rounding: Some(RoundingMode::FifteenMinutes),
             project: Some("pr1".into()),
+            aliases: BTreeMap::from([(
+                "standup".into(),
+                StoredAlias {
+                    project: "pr1".into(),
+                    task: Some("t1".into()),
+                    description: Some("Daily standup".into()),
+                },
+            )]),
         };
 
         let value = serde_json::to_value(config).unwrap();
@@ -180,10 +201,41 @@ mod tests {
         assert_eq!(value["workspace"], "ws1");
         assert_eq!(value["rounding"], "15m");
         assert_eq!(value["project"], "pr1");
+        assert_eq!(value["aliases"]["standup"]["project"], "pr1");
+        assert_eq!(value["aliases"]["standup"]["task"], "t1");
+        assert_eq!(value["aliases"]["standup"]["description"], "Daily standup");
     }
 
     #[test]
     fn stored_config_deserializes_expected_keys() {
+        let json = r#"{
+            "apiKey": "secret",
+            "workspace": "ws1",
+            "rounding": "5m",
+            "project": "pr1",
+            "aliases": {
+                "standup": {
+                    "project": "pr1",
+                    "task": "t1",
+                    "description": "Daily standup"
+                }
+            }
+        }"#;
+
+        let config: StoredConfig = serde_json::from_str(json).unwrap();
+
+        assert_eq!(config.api_key.as_deref(), Some("secret"));
+        assert_eq!(config.workspace.as_deref(), Some("ws1"));
+        assert_eq!(config.rounding, Some(RoundingMode::FiveMinutes));
+        assert_eq!(config.project.as_deref(), Some("pr1"));
+        let alias = config.aliases.get("standup").unwrap();
+        assert_eq!(alias.project, "pr1");
+        assert_eq!(alias.task.as_deref(), Some("t1"));
+        assert_eq!(alias.description.as_deref(), Some("Daily standup"));
+    }
+
+    #[test]
+    fn stored_config_deserializes_without_aliases() {
         let json = r#"{
             "apiKey": "secret",
             "workspace": "ws1",
@@ -193,10 +245,7 @@ mod tests {
 
         let config: StoredConfig = serde_json::from_str(json).unwrap();
 
-        assert_eq!(config.api_key.as_deref(), Some("secret"));
-        assert_eq!(config.workspace.as_deref(), Some("ws1"));
-        assert_eq!(config.rounding, Some(RoundingMode::FiveMinutes));
-        assert_eq!(config.project.as_deref(), Some("pr1"));
+        assert!(config.aliases.is_empty());
     }
 
     #[test]

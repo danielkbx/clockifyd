@@ -327,7 +327,7 @@ fn push_core_commands(
         "cfd timer current{workspace_flag} --format json\n"
     ));
     out.push_str(&format!(
-        "cfd timer start{workspace_flag} --project {project_id} --description \"<work>\"\n"
+        "cfd timer start \"<work>\"{workspace_flag} --project {project_id}\n"
     ));
     out.push_str(&format!("cfd timer stop{workspace_flag}\n"));
     out.push_str("```\n\n");
@@ -355,9 +355,8 @@ fn push_ids_and_scope(
     }
     out.push_str("- Use IDs returned by JSON output for follow-up commands.\n");
     out.push_str("- `task get` requires both project ID and task ID.\n");
-    out.push_str(
-        "- Entry and timer fields accept `--project`, `--task`, `--tag`, and `--description`.\n\n",
-    );
+    out.push_str("- Entry fields accept `--project`, `--task`, `--tag`, and `--description`.\n");
+    out.push_str("- Timer start accepts `--project`, `--task`, and `--tag`; pass the description as one quoted positional argument.\n\n");
 }
 
 fn push_safety(out: &mut String) {
@@ -393,7 +392,9 @@ fn push_examples(
     out.push_str(&format!(
         "cfd entry text list{workspace_flag} --project {project_id} --columns text,lastUsed\n"
     ));
-    out.push_str(&format!("cfd timer start{workspace_flag} --project {project_id} --description \"ABC-1: Implement feature\"\n"));
+    out.push_str(&format!(
+        "cfd timer start \"ABC-1: Implement feature\"{workspace_flag} --project {project_id}\n"
+    ));
     out.push_str("```\n\n");
 }
 
@@ -412,7 +413,7 @@ fn push_recipes(
         "- Add a manual entry: `cfd entry add{workspace_flag} --start <iso> --duration 30m --project {project_id} --description \"<work>\"`.\n"
     ));
     out.push_str(&format!(
-        "- Start a timer: `cfd timer start{workspace_flag} --project {project_id} --description \"<work>\"`.\n"
+        "- Start a timer: `cfd timer start \"<work>\"{workspace_flag} --project {project_id}`.\n"
     ));
     out.push_str(&format!(
         "- Stop a timer: `cfd timer stop{workspace_flag}`.\n"
@@ -643,7 +644,8 @@ mod tests {
         assert!(text.contains("cfd entry add --workspace w1 --start <iso> --duration <duration> --project p1 --description \"<work>\""));
         assert!(text
             .contains("cfd entry text list --workspace w1 --project p1 --columns text,lastUsed"));
-        assert!(text.contains("cfd timer start --workspace w1 --project p1 --description \"ABC-1: Implement feature\""));
+        assert!(text
+            .contains("cfd timer start \"ABC-1: Implement feature\" --workspace w1 --project p1"));
     }
 
     #[test]

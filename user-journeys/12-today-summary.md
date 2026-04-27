@@ -24,7 +24,7 @@ Verify `cfd today` as the fast daily overview for a real Clockify workspace.
    `cfd entry add --workspace <confirmed-workspace-id> --project <confirmed-project-id> --start <today-iso> --duration 15m --description "cfd today journey"`
 10. Run `cfd today --workspace <confirmed-workspace-id>` again
 11. If the user approves testing a running entry and no timer is running, run:
-    `cfd timer start --workspace <confirmed-workspace-id> --project <confirmed-project-id> --description "cfd today running journey"`
+    `cfd timer start "cfd today running journey" --workspace <confirmed-workspace-id> --project <confirmed-project-id>`
 12. Run `cfd today --workspace <confirmed-workspace-id>` while the timer is running
 13. Stop the timer if it was created by this journey:
     `cfd timer stop --workspace <confirmed-workspace-id> -y`

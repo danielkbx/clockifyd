@@ -233,6 +233,7 @@ mod tests {
             workspace: Some("ws1".into()),
             rounding: Some(RoundingMode::TenMinutes),
             project: Some("pr1".into()),
+            ..StoredConfig::default()
         };
 
         save_config(&config).unwrap();

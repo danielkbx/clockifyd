@@ -9,6 +9,13 @@ use crate::format::{
 use crate::input;
 use crate::types::{EntryFilters, OverlapWarning, StoredConfig, TimeEntry};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TimerStartFields {
+    pub project_id: String,
+    pub task_id: Option<String>,
+    pub description: Option<String>,
+}
+
 pub fn execute<T: HttpTransport>(
     client: &ClockifyClient<T>,
     args: &ParsedArgs,
@@ -39,14 +46,39 @@ fn start_timer<T: HttpTransport>(
     workspace_id: &str,
     config_state: &StoredConfig,
 ) -> Result<(), CfdError> {
-    let user = client.get_current_user()?;
-    if find_current_timer_optional(client, workspace_id, &user.id)?.is_some() {
-        return Err(CfdError::message("timer already running"));
+    if args.flags.contains_key("description") {
+        return Err(CfdError::message(
+            "usage: cfd timer start [description] [--start <iso>] [fields...] [--no-rounding]",
+        ));
+    }
+    if args.positional.len() > 1 {
+        return Err(CfdError::message(
+            "usage: cfd timer start [description] [--start <iso>] [fields...] [--no-rounding]",
+        ));
     }
     let explicit_project = args.flags.get("project").map(String::as_str);
     let project_id = config::resolve_project(explicit_project, config_state).map_err(|_| {
         CfdError::message("missing project; use --project <id> or cfd config set project <id>")
     })?;
+    let fields = TimerStartFields {
+        project_id,
+        task_id: args.flags.get("task").cloned(),
+        description: args.positional.first().cloned(),
+    };
+    start_timer_with_fields(client, args, workspace_id, config_state, fields)
+}
+
+pub(crate) fn start_timer_with_fields<T: HttpTransport>(
+    client: &ClockifyClient<T>,
+    args: &ParsedArgs,
+    workspace_id: &str,
+    config_state: &StoredConfig,
+    fields: TimerStartFields,
+) -> Result<(), CfdError> {
+    let user = client.get_current_user()?;
+    if find_current_timer_optional(client, workspace_id, &user.id)?.is_some() {
+        return Err(CfdError::message("timer already running"));
+    }
 
     let start = args
         .flags
@@ -63,13 +95,13 @@ fn start_timer<T: HttpTransport>(
 
     let mut payload = serde_json::json!({
         "start": start,
-        "projectId": project_id,
+        "projectId": fields.project_id,
     });
-    if let Some(description) = args.flags.get("description") {
-        payload["description"] = serde_json::Value::String(description.clone());
+    if let Some(description) = fields.description {
+        payload["description"] = serde_json::Value::String(description);
     }
-    if let Some(task_id) = args.flags.get("task") {
-        payload["taskId"] = serde_json::Value::String(task_id.clone());
+    if let Some(task_id) = fields.task_id {
+        payload["taskId"] = serde_json::Value::String(task_id);
     }
 
     let entry = client.create_time_entry(workspace_id, &payload)?;

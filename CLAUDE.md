@@ -1,6 +1,6 @@
 # clockifyd - Clockify CLI
 
-`cfd` is the released Clockify CLI for this repository. Current package version: `1.2.1`.
+`cfd` is the released Clockify CLI for this repository. Current package version: `1.3.0`.
 
 The public README is user documentation. This file and `.agents/*.md` are maintainer and agent context.
 
@@ -74,6 +74,11 @@ cfd config set rounding <off|1m|5m|10m|15m>
 cfd config get rounding
 cfd config unset rounding
 
+cfd alias create <alias> [--project <project-id>] [--task <task-id|none>] [--description <text|none>]
+cfd alias list
+cfd alias delete <alias> [-y]
+cfd <alias> start
+
 cfd project list [--columns <list>]
 cfd project get <id>
 cfd client list [--columns <list>]
@@ -94,11 +99,13 @@ cfd entry delete <id> [-y]
 cfd today
 
 cfd timer current
-cfd timer start [fields...] [--no-rounding]
+cfd timer start [description] [--project <id>] [--task <id>] [--tag <id>] [--no-rounding]
 cfd timer stop [--end <iso>] [--no-rounding] [-y]
 ```
 
-Entry and timer fields:
+Timer aliases are local config entries under `aliases`. `alias create` is interactive in a TTY and must render defaults like ytd: `Select Project [Project One]:`, `Select Task [none]:`, and `Description [Existing description]:`. Use `--task none` and `--description none` to clear optional stored values.
+
+Entry fields:
 
 ```text
 --project <id>
@@ -106,6 +113,8 @@ Entry and timer fields:
 --tag <id>
 --description <text>
 ```
+
+Timer start accepts `--project`, `--task`, and `--tag`; pass the description as one quoted positional argument.
 
 ## Output Contracts
 

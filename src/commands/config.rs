@@ -36,6 +36,18 @@ fn show_config() -> Result<(), CfdError> {
         "rounding: {}",
         config.rounding.map(rounding_as_str).unwrap_or("not set")
     );
+    if !config.aliases.is_empty() {
+        println!("aliases:");
+        for (name, alias) in config.aliases {
+            println!("  {name}:");
+            println!("    project: {}", alias.project);
+            println!("    task: {}", alias.task.as_deref().unwrap_or("not set"));
+            println!(
+                "    description: {}",
+                alias.description.as_deref().unwrap_or("not set")
+            );
+        }
+    }
 
     Ok(())
 }

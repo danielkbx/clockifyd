@@ -13,6 +13,7 @@ pub fn render_help(
         (Some("whoami"), _, _) => "Usage: cfd whoami\n\nShow the current user.".into(),
         (Some("workspace"), _, _) => workspace_help(),
         (Some("config"), _, _) => config_help(),
+        (Some("alias"), _, _) => alias_help(),
         (Some("project"), _, _) => project_help(),
         (Some("client"), _, _) => client_help(),
         (Some("tag"), _, _) => tag_help(),
@@ -121,6 +122,10 @@ fn global_help() -> String {
             ("timer current", "Show running timer"),
             ("timer start", "Start timer"),
             ("timer stop", "Stop timer"),
+            ("alias create <name>", "Create or update timer alias"),
+            ("alias list", "List configured aliases"),
+            ("alias delete <name>", "Delete alias"),
+            ("<alias> start", "Start timer through alias"),
         ],
     );
 
@@ -222,6 +227,27 @@ Examples:
   cfd config
   cfd config set workspace <id>
   cfd config set rounding 15m"
+        .into()
+}
+
+fn alias_help() -> String {
+    "Usage:
+  cfd alias create <alias> [--project <project-id>] [--task <task-id|none>] [--description <text|none>]
+  cfd alias list [--format text|json|raw] [--no-meta]
+  cfd alias delete <alias> [-y]
+  cfd <alias> start [--start <iso>] [--no-rounding] [-y]
+
+Aliases are local shortcuts for recurring timer starts.
+They bind a project and can optionally bind a task and description.
+
+Interactive create:
+  When run in a terminal, missing project/task/description values are prompted.
+  Defaults are shown by label, for example `Select Project [Project One]:`.
+
+Examples:
+  cfd alias create standup --project <project-id> --description \"Daily standup\"
+  cfd standup start
+  cfd alias delete standup -y"
         .into()
 }
 
@@ -438,7 +464,7 @@ Notes:
 fn timer_help() -> String {
     "Usage:
   cfd timer current [--format json] [--no-meta]
-  cfd timer start [--start <iso>] [fields...] [--no-rounding]
+  cfd timer start [description] [--start <iso>] [fields...] [--no-rounding]
   cfd timer stop [--end <iso>] [--no-rounding] [-y]"
         .to_string()
         + "
@@ -447,10 +473,10 @@ Fields:
   --project <id>       Project ID
   --task <id>          Task ID
   --tag <id>           Tag ID; may be repeated
-  --description <text> Entry description
 
 Notes:
   Mutating timer commands apply configured rounding unless --no-rounding is set.
+  timer start accepts the description as one optional positional argument.
   timer start uses the current time unless --start is set.
   timer stop checks overlaps and asks for confirmation unless -y is set."
 }
