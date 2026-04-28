@@ -32,6 +32,7 @@ src/
     task.rs         <- task list/get/create
     entry.rs        <- time-entry list/get/add/update/delete
     today.rs        <- daily time-entry summary table
+    status.rs       <- timer state plus grouped today/week summaries
     timer.rs        <- timer current/start/stop/resume
 tests/              <- subprocess CLI coverage
 user-journeys/      <- real-workspace verification flows
@@ -156,6 +157,8 @@ Clockify API endpoints used by `cfd`:
 
 `cfd today` uses the existing current-user time-entry list endpoint with today's local start/end boundaries and loads projects for display names.
 
+`cfd status` uses the current timer endpoint, current-user time-entry list endpoint for today/week ranges, and projects for display names. It groups summaries by project ID, task ID, and description. Week ranges default to Monday-to-Monday local boundaries and may use Sunday-to-Sunday with `--week-start sunday`.
+
 `entry list` and `today` are Entry timeline outputs. They sort by `timeInterval.start` ascending by default, so the newest entry appears last. Both accept `--sort asc|desc`; the selected order applies to text, columns, JSON, and raw output.
 
 ## Config Module
@@ -182,6 +185,8 @@ field: value
 List commands print blank lines between items.
 
 `cfd today` is the exception to line-based default text: it prints an ASCII table with columns `Project`, `Task`, `Description`, `Time`, and `Duration`, followed by a `Total` row. JSON/raw output returns the time-entry array in the selected sort order.
+
+`cfd status` text output is a sectioned overview (`Timer`, `Today`, `Week`) where running timer details and Today/Week summaries render ASCII tables with shared column widths. JSON/raw output returns a computed status object rather than raw Clockify entries. `status` does not support `--columns`.
 
 JSON output uses `--format json`. `--format raw` is accepted as an alias for compatibility.
 

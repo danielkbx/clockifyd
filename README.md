@@ -264,6 +264,7 @@ cfd entry update <id> --start <iso> (--end <iso> | --duration <d>) [fields...] [
 cfd entry delete <id> [-y]
 
 cfd today [--sort asc|desc]
+cfd status [--week-start monday|sunday]
 ```
 
 Entry fields:
@@ -288,6 +289,20 @@ cfd today --sort desc
 `cfd today` shows today's entries as an ASCII table with a total row. The text columns are `Project`, `Task`, `Description`, `Time`, and `Duration`. Running entries are displayed as `HH:MM-now` and count toward the total. Entries sort by start time ascending by default, putting the newest entry at the bottom; use `--sort desc` to show newest entries first.
 
 `--format json` and `--format raw` return the time-entry JSON array in the selected sort order, matching `cfd entry list --start today --end today --format json`. Use `entry list --start today --end today --columns <list>` when you need tab-separated columns.
+
+### Status Overview
+
+```bash
+cfd status
+cfd status --week-start sunday
+cfd status --format json
+```
+
+`cfd status` shows the current timer state, a today summary, and a current-week summary. When a timer is running, the timer details render as an ASCII table. Today and week summaries also render as ASCII tables, group entries by `project + task + description`, resolve project names for display, show task IDs, and include total duration rows. The Timer, Today, and Week tables share column widths. Missing task or description values display as `none`.
+
+The week starts on Monday by default. Use `--week-start sunday` for a Sunday-to-Sunday week. Boundaries resolve in the local process timezone. Running entries count toward timer, today, and week totals.
+
+`--format json` and `--format raw` return a structured status object with timer state, grouped summaries, `durationSeconds`, and compact duration strings. `--columns` is not supported by `status`.
 
 ### Entry Text Reuse
 
@@ -354,6 +369,7 @@ Global output flags:
 | `--no-meta` | Hide metadata fields where supported |
 | `--columns <list>` | Print selected fields as tab-separated rows where supported |
 | `--sort asc|desc` | Sort entry timeline output by start time where supported |
+| `--week-start monday|sunday` | Week boundary for `status` |
 | `--workspace <id>` | Override configured workspace |
 | `--no-rounding` | Disable configured rounding for one command |
 | `-y` | Skip confirmation prompts |
@@ -365,7 +381,7 @@ key: value
 key: value
 ```
 
-Lists separate items with a blank line. `--columns` produces no header row and prints one tab-separated row per item. `--columns` and `--format` are mutually exclusive. `entry list` and `today` support `--sort asc|desc`; `asc` is the default and places the newest entry last.
+Lists separate items with a blank line. `--columns` produces no header row and prints one tab-separated row per item. `--columns` and `--format` are mutually exclusive. `entry list` and `today` support `--sort asc|desc`; `asc` is the default and places the newest entry last. `status` does not support `--columns`.
 
 Create and update commands that return one changed resource print only its ID on stdout, which makes them easy to use in scripts:
 
@@ -444,6 +460,14 @@ cfd entry update <entry-id> --start 2026-04-26T09:00:00Z --duration 2h --descrip
 cfd today
 cfd entry list --start today --end today --columns start,end,duration,description --sort asc
 cfd entry list --start today --end today --sort desc
+```
+
+### Check Current Status
+
+```bash
+cfd status
+cfd status --week-start sunday
+cfd status --format json
 ```
 
 ### Reuse A Prior Description

@@ -179,6 +179,13 @@ fn run() -> Result<(), error::CfdError> {
             let client = client::ClockifyClient::new(api_key, client::UreqTransport);
             commands::today::execute(&client, &args, &workspace_id)
         }
+        ("status", _, _) => {
+            let config = config::get_config()?;
+            let api_key = config::resolve_api_key(&config)?;
+            let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            commands::status::execute(&client, &args, &workspace_id)
+        }
         ("timer", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
@@ -259,6 +266,7 @@ fn is_known_command(resource: &str, action: Option<&str>, subaction: Option<&str
             )
             | ("entry", Some("text"), Some("list"))
             | ("today", None, None)
+            | ("status", None, None)
             | ("timer", Some("current" | "start" | "stop" | "resume"), None)
             | ("completion", Some("bash" | "zsh" | "fish"), None)
     )
@@ -284,6 +292,7 @@ mod main {
     fn known_commands_cover_entry_text_branch() {
         assert!(is_known_command("entry", Some("text"), Some("list")));
         assert!(is_known_command("today", None, None));
+        assert!(is_known_command("status", None, None));
         assert!(is_known_command("config", None, None));
         assert!(is_known_command("config", Some("interactive"), None));
         assert!(!is_known_command("entry", Some("text"), None));

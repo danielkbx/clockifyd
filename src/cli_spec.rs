@@ -5,6 +5,7 @@ pub const ROUNDING_VALUES: &[&str] = &["off", "1m", "5m", "10m", "15m"];
 pub const COMPLETION_SHELLS: &[&str] = &["bash", "zsh", "fish"];
 pub const SKILL_SCOPE_VALUES: &[&str] = &["brief", "standard", "full"];
 pub const SORT_VALUES: &[&str] = &["asc", "desc"];
+pub const WEEK_START_VALUES: &[&str] = &["monday", "sunday"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
@@ -293,6 +294,18 @@ pub fn cli_spec() -> CommandSpec {
                 vec![],
             ),
             command(
+                "status",
+                "Show timer, today, and week summary",
+                vec![option_value(
+                    "week-start",
+                    "Week start day",
+                    "monday|sunday",
+                    WEEK_START_VALUES,
+                )],
+                vec![],
+                vec![],
+            ),
+            command(
                 "timer",
                 "Manage running timer",
                 vec![],
@@ -558,6 +571,7 @@ mod tests {
                 "task",
                 "entry",
                 "today",
+                "status",
                 "timer",
                 "completion",
             ]
@@ -640,6 +654,20 @@ mod tests {
     }
 
     #[test]
+    fn status_week_start_exposes_supported_values() {
+        let spec = cli_spec();
+        let week_start = spec
+            .find(&["status"])
+            .unwrap()
+            .options
+            .iter()
+            .find(|option| option.long == Some("week-start"))
+            .unwrap();
+
+        assert_eq!(week_start.values, WEEK_START_VALUES);
+    }
+
+    #[test]
     fn command_paths_include_nested_leaves() {
         let spec = cli_spec();
         let paths = spec.command_paths();
@@ -650,6 +678,7 @@ mod tests {
         assert!(paths.contains(&vec!["config", "set", "rounding"]));
         assert!(paths.contains(&vec!["entry", "text", "list"]));
         assert!(paths.contains(&vec!["today"]));
+        assert!(paths.contains(&vec!["status"]));
     }
 
     #[test]
@@ -659,6 +688,7 @@ mod tests {
 
         assert!(names.contains(&"format"));
         assert!(names.contains(&"sort"));
+        assert!(names.contains(&"week-start"));
         assert!(names.contains(&"columns"));
         assert!(names.contains(&"duration"));
         assert!(names.contains(&"description"));

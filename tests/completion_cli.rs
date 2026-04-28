@@ -92,6 +92,11 @@ COMP_WORDS=(cfd entry list --sort "")
 COMP_CWORD=4
 _cfd
 printf 'entry-sort:%s\n' "${{COMPREPLY[*]}}"
+
+COMP_WORDS=(cfd status --week-start "")
+COMP_CWORD=3
+_cfd
+printf 'status-week-start:%s\n' "${{COMPREPLY[*]}}"
 "#,
         completion_path.display()
     );
@@ -111,13 +116,14 @@ printf 'entry-sort:%s\n' "${{COMPREPLY[*]}}"
     assert!(candidates.contains("top:"));
     assert!(candidates.contains("workspace"));
     assert!(candidates.contains("timer:current start stop"));
-    assert!(candidates.contains("after-global-option:help login logout skill whoami workspace config alias project client tag task entry today timer completion"));
+    assert!(candidates.contains("after-global-option:help login logout skill whoami workspace config alias project client tag task entry today status timer completion"));
     assert!(candidates.contains("timer-after-option:current start stop"));
     assert!(candidates.contains("entry-text:list"));
     assert!(candidates.contains("rounding:off 1m 5m 10m 15m"));
     assert!(candidates.contains("scope:brief standard full"));
     assert!(candidates.contains("today-sort:asc desc"));
     assert!(candidates.contains("entry-sort:asc desc"));
+    assert!(candidates.contains("status-week-start:monday sunday"));
     assert!(!candidates.contains("timer:add"));
 }
 
@@ -174,7 +180,7 @@ fn generated_fish_completion_produces_candidates_when_sourced() {
             "--no-config",
             "-c",
             &format!(
-                "source {}; complete -C 'cfd '; complete -C 'cfd entry text '; complete -C 'cfd config set '; complete -C 'cfd skill --scope '; complete -C 'cfd --format '; complete -C 'cfd today --sort '; complete -C 'cfd entry list --sort '",
+                "source {}; complete -C 'cfd '; complete -C 'cfd entry text '; complete -C 'cfd config set '; complete -C 'cfd skill --scope '; complete -C 'cfd --format '; complete -C 'cfd today --sort '; complete -C 'cfd entry list --sort '; complete -C 'cfd status --week-start '",
                 completion_path.display()
             ),
         ])
@@ -198,6 +204,8 @@ fn generated_fish_completion_produces_candidates_when_sourced() {
     assert!(candidates.contains("json"));
     assert!(candidates.contains("asc"));
     assert!(candidates.contains("desc"));
+    assert!(candidates.contains("monday"));
+    assert!(candidates.contains("sunday"));
     assert!(!candidates.contains("add\tCreate time entry"));
     assert!(!candidates.contains("interactive\tInteractively update stored defaults"));
 }

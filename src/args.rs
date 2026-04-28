@@ -17,6 +17,7 @@ pub(crate) const VALUE_FLAGS: &[&str] = &[
     "description",
     "name",
     "scope",
+    "week-start",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]

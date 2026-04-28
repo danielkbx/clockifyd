@@ -9,6 +9,7 @@ pub mod login;
 pub mod logout;
 pub mod project;
 pub mod skill;
+pub mod status;
 pub mod tag;
 pub mod task;
 pub mod timer;

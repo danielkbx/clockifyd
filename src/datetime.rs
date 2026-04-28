@@ -1,12 +1,26 @@
 #![allow(dead_code)]
 
-use chrono::{DateTime, Datelike, Days, Duration, Local, LocalResult, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Days, Duration, Local, LocalResult, TimeZone, Utc, Weekday};
 
 use crate::error::CfdError;
 use crate::types::RoundingMode;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WeekStart {
+    Monday,
+    Sunday,
+}
+
 pub fn resolve_list_datetime(flag_name: &str, value: &str) -> Result<String, CfdError> {
     resolve_list_datetime_at(flag_name, value, Local::now())
+}
+
+pub fn local_today_bounds() -> Result<(String, String), CfdError> {
+    local_today_bounds_at(Local::now())
+}
+
+pub fn local_week_bounds(week_start: WeekStart) -> Result<(String, String), CfdError> {
+    local_week_bounds_at(Local::now(), week_start)
 }
 
 pub fn round_timestamp(value: &str, mode: RoundingMode) -> Result<String, CfdError> {
@@ -27,6 +41,45 @@ fn resolve_list_datetime_at(
             .map(|parsed| parsed.to_rfc3339())
             .map_err(|_| CfdError::message(format!("invalid {flag_name}: {value}"))),
     }
+}
+
+fn local_today_bounds_at(now: DateTime<Local>) -> Result<(String, String), CfdError> {
+    let start_date = now.date_naive();
+    let end_date = start_date
+        .checked_add_days(Days::new(1))
+        .ok_or_else(|| CfdError::message("invalid end: date overflow"))?;
+
+    Ok((
+        local_midnight_utc("start", start_date)?,
+        local_midnight_utc("end", end_date)?,
+    ))
+}
+
+fn local_week_bounds_at(
+    now: DateTime<Local>,
+    week_start: WeekStart,
+) -> Result<(String, String), CfdError> {
+    let start_weekday = match week_start {
+        WeekStart::Monday => Weekday::Mon,
+        WeekStart::Sunday => Weekday::Sun,
+    };
+    let days_since_start = (7 + weekday_number(now.weekday()) - weekday_number(start_weekday)) % 7;
+    let start_date = now
+        .date_naive()
+        .checked_sub_days(Days::new(days_since_start.into()))
+        .ok_or_else(|| CfdError::message("invalid start: date overflow"))?;
+    let end_date = start_date
+        .checked_add_days(Days::new(7))
+        .ok_or_else(|| CfdError::message("invalid end: date overflow"))?;
+
+    Ok((
+        local_midnight_utc("start", start_date)?,
+        local_midnight_utc("end", end_date)?,
+    ))
+}
+
+fn weekday_number(weekday: Weekday) -> u32 {
+    weekday.num_days_from_monday()
 }
 
 fn keyword_boundary(
@@ -55,14 +108,11 @@ fn keyword_boundary(
         }
     };
 
-    let local_dt = match Local.with_ymd_and_hms(
-        target_date.year(),
-        target_date.month(),
-        target_date.day(),
-        0,
-        0,
-        0,
-    ) {
+    local_midnight_utc(flag_name, target_date)
+}
+
+fn local_midnight_utc(flag_name: &str, date: chrono::NaiveDate) -> Result<String, CfdError> {
+    let local_dt = match Local.with_ymd_and_hms(date.year(), date.month(), date.day(), 0, 0, 0) {
         LocalResult::Single(value) => value,
         _ => {
             return Err(CfdError::message(format!(
@@ -132,6 +182,45 @@ mod tests {
             result,
             local_midnight_utc(now.year(), now.month(), now.day())
         );
+    }
+
+    #[test]
+    fn resolves_local_today_bounds() {
+        let now = match Local.with_ymd_and_hms(2026, 4, 23, 15, 30, 0) {
+            LocalResult::Single(value) => value,
+            _ => panic!("failed to resolve local test time"),
+        };
+
+        let (start, end) = local_today_bounds_at(now).unwrap();
+
+        assert_eq!(start, local_midnight_utc(2026, 4, 23));
+        assert_eq!(end, local_midnight_utc(2026, 4, 24));
+    }
+
+    #[test]
+    fn resolves_monday_week_bounds() {
+        let now = match Local.with_ymd_and_hms(2026, 4, 23, 15, 30, 0) {
+            LocalResult::Single(value) => value,
+            _ => panic!("failed to resolve local test time"),
+        };
+
+        let (start, end) = local_week_bounds_at(now, WeekStart::Monday).unwrap();
+
+        assert_eq!(start, local_midnight_utc(2026, 4, 20));
+        assert_eq!(end, local_midnight_utc(2026, 4, 27));
+    }
+
+    #[test]
+    fn resolves_sunday_week_bounds() {
+        let now = match Local.with_ymd_and_hms(2026, 4, 23, 15, 30, 0) {
+            LocalResult::Single(value) => value,
+            _ => panic!("failed to resolve local test time"),
+        };
+
+        let (start, end) = local_week_bounds_at(now, WeekStart::Sunday).unwrap();
+
+        assert_eq!(start, local_midnight_utc(2026, 4, 19));
+        assert_eq!(end, local_midnight_utc(2026, 4, 26));
     }
 
     #[test]

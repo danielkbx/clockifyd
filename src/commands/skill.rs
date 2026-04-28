@@ -301,6 +301,7 @@ fn push_output_rules(out: &mut String) {
     out.push_str("- Prefer `--format json` for list/get commands when extracting IDs, comparing data, or planning follow-up commands.\n");
     out.push_str("- Use `--columns <list>` for compact tab-separated inspection when a command supports it.\n");
     out.push_str("- Entry timeline outputs (`entry list`, `today`) support `--sort asc|desc` and sort by start time ascending by default; use `--sort desc` for newest first.\n");
+    out.push_str("- `status` gives a computed timer/today/week overview; JSON/raw output returns grouped summary data, not raw time-entry arrays.\n");
     out.push_str("- Use text output for quick human-readable inspection.\n");
     out.push_str("- `--format raw` is a compatibility alias for JSON on normal cfd commands. `cfd skill` supports only `--format text` and `--format md`.\n\n");
 }
@@ -322,6 +323,7 @@ fn push_core_commands(
     out.push_str(&format!(
         "cfd entry list{workspace_flag} --start today --end today --format json --sort asc\n"
     ));
+    out.push_str(&format!("cfd status{workspace_flag} --format json\n"));
     out.push_str(&format!("cfd entry add{workspace_flag} --start <iso> --duration <duration> --project {project_id} --description \"<work>\"\n"));
     out.push_str(&format!("cfd entry update{workspace_flag} <entry-id> --start <iso> --duration <duration> --description \"<work>\"\n"));
     out.push_str(&format!(
@@ -413,6 +415,9 @@ fn push_recipes(
         "- Find today’s tracked time in chronological order: `cfd entry list{workspace_flag} --start today --end today --format json --sort asc`.\n"
     ));
     out.push_str(&format!(
+        "- Check current timer plus today/week totals: `cfd status{workspace_flag}`.\n"
+    ));
+    out.push_str(&format!(
         "- Add a manual entry: `cfd entry add{workspace_flag} --start <iso> --duration 30m --project {project_id} --description \"<work>\"`.\n"
     ));
     out.push_str(&format!(
@@ -457,6 +462,7 @@ fn push_full_reference(out: &mut String) {
     out.push_str("cfd project list|get / client list|get / tag list|get\n");
     out.push_str("cfd task list|get|create\n");
     out.push_str("cfd entry list|get|add|update|delete / cfd entry text list\n");
+    out.push_str("cfd today / cfd status\n");
     out.push_str("cfd timer current|start|stop\n");
     out.push_str("```\n\n");
     out.push_str("## Detailed Output And Input Rules\n\n");
@@ -468,6 +474,7 @@ fn push_full_reference(out: &mut String) {
     );
     out.push_str("- `--columns` emits no header and one tab-separated row per item; it cannot be combined with `--format`.\n");
     out.push_str("- `entry list` and `today` support `--sort asc|desc`; default `asc` puts newest entries last.\n");
+    out.push_str("- `status` groups today/week summaries by project, task, and description; use `--week-start monday|sunday` for the week boundary.\n");
     out.push_str("- Create/update time-entry commands print only the changed resource ID.\n");
     out.push_str("- `today` and `yesterday` are valid date filters for `entry list` and resolve in the local process timezone.\n\n");
     out.push_str("## Configuration And Defaults\n\n");

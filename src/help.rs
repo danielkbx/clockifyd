@@ -21,6 +21,7 @@ pub fn render_help(
         (Some("entry"), Some("text"), _) => entry_text_help(),
         (Some("entry"), _, _) => entry_help(),
         (Some("today"), _, _) => today_help(),
+        (Some("status"), _, _) => status_help(),
         (Some("timer"), _, _) => timer_help(),
         (Some("completion"), _, _) => completion_help(),
         (Some(other), _, _) => {
@@ -113,6 +114,7 @@ fn global_help() -> String {
             ("entry update <id>", "Update time entry"),
             ("entry delete <id>", "Delete time entry"),
             ("today", "Show today's time entries"),
+            ("status", "Show timer, today, and week summary"),
         ],
     );
     help_group(
@@ -470,6 +472,33 @@ Notes:
         .into()
 }
 
+fn status_help() -> String {
+    "Usage:
+  cfd status [--week-start monday|sunday] [--format text|json|raw] [--workspace <id>]
+
+Show the current timer state plus today and week summaries.
+
+Text output:
+  Timer section shows whether a timer is running.
+  Today and Week sections group entries by project + task + description.
+  Each group shows project, task ID, description, and total duration.
+  Missing task or description displays as `none`.
+
+Options:
+  --week-start monday|sunday
+                      Week boundary for the Week section; default: monday
+  --format text       Human-readable overview; default
+  --format json       Structured status summary
+  --format raw        Alias for JSON
+
+Notes:
+  Today and week boundaries resolve in the local process timezone.
+  Running entries count toward totals.
+  Project names are resolved for display; task displays the Clockify task ID.
+  `--columns` is not supported by this command."
+        .into()
+}
+
 fn timer_help() -> String {
     "Usage:
   cfd timer current [--format json] [--no-meta]
@@ -559,6 +588,17 @@ mod tests {
     }
 
     #[test]
+    fn renders_status_help() {
+        let help = render_help(Some("status"), None, None);
+
+        assert!(help.contains("cfd status [--week-start monday|sunday]"));
+        assert!(help.contains("timer state plus today and week summaries"));
+        assert!(help.contains("project + task + description"));
+        assert!(help.contains("--format json"));
+        assert!(help.contains("`--columns` is not supported"));
+    }
+
+    #[test]
     fn renders_global_help_with_version_and_full_format_list() {
         let help = render_help(None, None, None);
         assert!(help.contains("Core:"));
@@ -569,6 +609,7 @@ mod tests {
         assert!(help.contains("Timer:"));
         assert!(help.contains("Global flags:"));
         assert!(help.contains("today"));
+        assert!(help.contains("status"));
         assert!(help.contains("--version"));
         assert!(help.contains("--format text|json|raw"));
         assert!(help.contains("timer stop"));

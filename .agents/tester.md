@@ -63,9 +63,10 @@ Specific coverage:
 18. `skill --workspace <id> --project <id>` resolves and embeds workspace/project context
 19. `today` renders an ASCII table with `Project`, `Task`, `Description`, `Time`, `Duration`, includes a `Total` row, sorts by start time ascending by default, supports `--sort asc|desc`, and `--format json|raw` returns time-entry JSON in the selected order
 20. `today --columns <list>` fails clearly and directs users to `entry list --start today --end today --columns <list>`
-21. `entry list` sorts by start time ascending by default, supports `--sort asc|desc`, and applies the selected order consistently to default text, `--columns`, JSON, and raw output
-22. `alias create|list|delete` manage local aliases, and `cfd <alias> start` starts a timer with stored project/task/description
-23. `timer resume` lists recent entries interactively, supports `-1` through `-9`, copies project/task/tags/description, and keeps `-y` semantics for direct-selection and overlap prompts
+21. `status` renders timer state plus today/week summaries grouped by project/task/description, supports `--week-start monday|sunday`, returns structured JSON/raw output, and rejects `--columns`
+22. `entry list` sorts by start time ascending by default, supports `--sort asc|desc`, and applies the selected order consistently to default text, `--columns`, JSON, and raw output
+23. `alias create|list|delete` manage local aliases, and `cfd <alias> start` starts a timer with stored project/task/description
+24. `timer resume` lists recent entries interactively, supports `-1` through `-9`, copies project/task/tags/description, and keeps `-y` semantics for direct-selection and overlap prompts
 
 ## Rust-specific Notes
 
@@ -106,6 +107,7 @@ Important process rules:
 | Today Summary | `12-today-summary.md` | daily ASCII table, total row, JSON compatibility, running entry display |
 | Timer Aliases | `13-timer-aliases.md` | alias create/list/delete, dynamic alias start, interactive default prompts |
 | Timer Resume | `14-timer-resume.md` | interactive and direct recent-entry resume, copied fields, confirmation defaults |
+| Status Overview | `15-status-overview.md` | timer state, grouped today/week summaries, week-start option, structured JSON |
 
 ## Conventions
 
