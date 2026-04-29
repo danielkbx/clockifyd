@@ -29,6 +29,72 @@ pub fn round_timestamp(value: &str, mode: RoundingMode) -> Result<String, CfdErr
     Ok(round_datetime(parsed.with_timezone(&Utc), mode).to_rfc3339())
 }
 
+pub fn resolve_and_round_timestamp(
+    flag_name: &str,
+    value: &str,
+    mode: RoundingMode,
+) -> Result<String, CfdError> {
+    let resolved = resolve_timestamp(flag_name, value)?;
+    round_timestamp(&resolved, mode)
+}
+
+pub fn resolve_and_round_existing_timestamp(
+    flag_name: &str,
+    value: &str,
+    base: Option<&str>,
+    mode: RoundingMode,
+) -> Result<String, CfdError> {
+    let resolved = if is_bare_relative(value) {
+        let base = base.ok_or_else(|| {
+            CfdError::message(format!(
+                "entry update cannot adjust missing {flag_name} time; use --{flag_name} now-5m or --duration <d>"
+            ))
+        })?;
+        resolve_relative_to_base(flag_name, value, base)?
+    } else {
+        resolve_timestamp(flag_name, value)?
+    };
+
+    round_timestamp(&resolved, mode)
+}
+
+pub fn resolve_timestamp(flag_name: &str, value: &str) -> Result<String, CfdError> {
+    resolve_timestamp_at(flag_name, value, Local::now())
+}
+
+fn resolve_timestamp_at(
+    flag_name: &str,
+    value: &str,
+    now: DateTime<Local>,
+) -> Result<String, CfdError> {
+    if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(value) {
+        return Ok(parsed.to_rfc3339());
+    }
+
+    if value == "now" {
+        return Ok(now.with_timezone(&Utc).to_rfc3339());
+    }
+
+    if let Some(relative) = value.strip_prefix("now") {
+        let offset = parse_signed_duration(flag_name, relative, value)?;
+        return Ok((now.with_timezone(&Utc) + offset).to_rfc3339());
+    }
+
+    if is_bare_relative(value) {
+        let offset = parse_signed_duration(flag_name, value, value)?;
+        return Ok((now.with_timezone(&Utc) + offset).to_rfc3339());
+    }
+
+    Err(CfdError::message(format!("invalid {flag_name}: {value}")))
+}
+
+fn resolve_relative_to_base(flag_name: &str, value: &str, base: &str) -> Result<String, CfdError> {
+    let base = chrono::DateTime::parse_from_rfc3339(base)
+        .map_err(|_| CfdError::message(format!("invalid {flag_name}: {base}")))?;
+    let offset = parse_signed_duration(flag_name, value, value)?;
+    Ok((base + offset).to_rfc3339())
+}
+
 fn resolve_list_datetime_at(
     flag_name: &str,
     value: &str,
@@ -37,9 +103,39 @@ fn resolve_list_datetime_at(
     match value {
         "today" => keyword_boundary(flag_name, now, 0),
         "yesterday" => keyword_boundary(flag_name, now, -1),
-        _ => chrono::DateTime::parse_from_rfc3339(value)
-            .map(|parsed| parsed.to_rfc3339())
-            .map_err(|_| CfdError::message(format!("invalid {flag_name}: {value}"))),
+        _ => resolve_timestamp_at(flag_name, value, now),
+    }
+}
+
+fn is_bare_relative(value: &str) -> bool {
+    matches!(value.as_bytes().first(), Some(b'+' | b'-'))
+}
+
+fn parse_signed_duration(
+    flag_name: &str,
+    value: &str,
+    display_value: &str,
+) -> Result<Duration, CfdError> {
+    let (sign, body) = value
+        .split_at_checked(1)
+        .ok_or_else(|| CfdError::message(format!("invalid {flag_name}: {display_value}")))?;
+    if sign != "+" && sign != "-" {
+        return Err(CfdError::message(format!(
+            "invalid {flag_name}: {display_value}"
+        )));
+    }
+    if body.is_empty() || !body.chars().any(|char| matches!(char, 'h' | 'm')) {
+        return Err(CfdError::message(format!(
+            "invalid {flag_name}: {display_value}"
+        )));
+    }
+
+    let duration = crate::duration::parse_duration(body)
+        .map_err(|_| CfdError::message(format!("invalid {flag_name}: {display_value}")))?;
+    if sign == "-" {
+        Ok(-duration)
+    } else {
+        Ok(duration)
     }
 }
 
@@ -230,6 +326,76 @@ mod tests {
             .to_string();
 
         assert!(error.contains("invalid start"));
+    }
+
+    #[test]
+    fn resolves_relative_timestamps_from_now() {
+        let now = match Local.with_ymd_and_hms(2026, 4, 23, 15, 30, 0) {
+            LocalResult::Single(value) => value,
+            _ => panic!("failed to resolve local test time"),
+        };
+
+        assert_eq!(
+            resolve_timestamp_at("start", "now", now).unwrap(),
+            now.with_timezone(&Utc).to_rfc3339()
+        );
+        assert_eq!(
+            resolve_timestamp_at("start", "-3m", now).unwrap(),
+            (now.with_timezone(&Utc) - Duration::minutes(3)).to_rfc3339()
+        );
+        assert_eq!(
+            resolve_timestamp_at("end", "+30m", now).unwrap(),
+            (now.with_timezone(&Utc) + Duration::minutes(30)).to_rfc3339()
+        );
+        assert_eq!(
+            resolve_timestamp_at("start", "now-2h", now).unwrap(),
+            (now.with_timezone(&Utc) - Duration::hours(2)).to_rfc3339()
+        );
+        assert_eq!(
+            resolve_timestamp_at("end", "now+1h30m", now).unwrap(),
+            (now.with_timezone(&Utc) + Duration::minutes(90)).to_rfc3339()
+        );
+    }
+
+    #[test]
+    fn list_datetime_accepts_relative_timestamps() {
+        let now = match Local.with_ymd_and_hms(2026, 4, 23, 15, 30, 0) {
+            LocalResult::Single(value) => value,
+            _ => panic!("failed to resolve local test time"),
+        };
+
+        let result = resolve_list_datetime_at("start", "-2h", now).unwrap();
+
+        assert_eq!(
+            result,
+            (now.with_timezone(&Utc) - Duration::hours(2)).to_rfc3339()
+        );
+    }
+
+    #[test]
+    fn resolves_bare_relative_timestamps_against_existing_base() {
+        assert_eq!(
+            resolve_relative_to_base("end", "-5m", "2026-04-23T10:00:00Z").unwrap(),
+            "2026-04-23T09:55:00+00:00"
+        );
+        assert_eq!(
+            resolve_relative_to_base("start", "+10m", "2026-04-23T09:00:00Z").unwrap(),
+            "2026-04-23T09:10:00+00:00"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_relative_timestamps() {
+        for value in ["15m", "nowish", "now--15m", "-", "-2d", "-15"] {
+            let error = resolve_timestamp_at("start", value, Local::now())
+                .unwrap_err()
+                .to_string();
+
+            assert!(
+                error.contains("invalid start"),
+                "unexpected error for {value}: {error}"
+            );
+        }
     }
 
     #[test]

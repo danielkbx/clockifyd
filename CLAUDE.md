@@ -89,19 +89,19 @@ cfd task list --project <id> [--columns <list>]
 cfd task get <project-id> <task-id>
 cfd task create --project <id> --name "ABC-1: Implement something nice"
 
-cfd entry list --start <iso|today|yesterday> --end <iso|today|yesterday> [--project <id>] [--task <id>] [--tag <id>...] [--text <value>] [--columns <list>] [--sort asc|desc]
+cfd entry list --start <time|today|yesterday> --end <time|today|yesterday> [--project <id>] [--task <id>] [--tag <id>...] [--text <value>] [--columns <list>] [--sort asc|desc]
 cfd entry get <id> [--columns <list>]
 cfd entry text list [--project <id>] [--columns <list>]
-cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
-cfd entry update <id> [--start <iso>] [--end <iso> | --duration <d>] [fields...] [--no-rounding]
+cfd entry add --start <time> (--end <time> | --duration <d>) [fields...] [--no-rounding]
+cfd entry update <id> [--start <time>] [--end <time> | --duration <d>] [fields...] [--no-rounding]
 cfd entry delete <id> [-y]
 
 cfd today [--sort asc|desc]
 
 cfd timer current
-cfd timer start [description] [--project <id>] [--task <id>] [--tag <id>] [--no-rounding]
-cfd timer stop [--end <iso>] [--no-rounding] [-y]
-cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <iso>] [--no-rounding] [-y]
+cfd timer start [description] [--start <time>] [--project <id>] [--task <id>] [--tag <id>] [--no-rounding]
+cfd timer stop [--end <time>] [--no-rounding] [-y]
+cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <time>] [--no-rounding] [-y]
 ```
 
 Timer aliases are local config entries under `aliases`. `alias create` is interactive in a TTY and must render defaults like ytd: `Select Project [Project One]:`, `Select Task [none]:`, and `Description [Existing description]:`. Use `--task none` and `--description none` to clear optional stored values.
@@ -183,6 +183,8 @@ Credential and settings resolution order:
 - Rounding: `--no-rounding` -> `CFD_ROUNDING` -> config file -> `off`
 
 `entry text list` resolves project from `--project` or stored config. `today` and `yesterday` are supported in entry-list date filters and resolve in the local process timezone.
+
+`--start` and `--end` accept ISO timestamps and relative times: `now`, bare `+duration` or `-duration`, and `now+duration` or `now-duration` using `h` and `m`. Bare relative values are relative to current time except for `entry update`, where they adjust the existing value of the same field. Use `now-5m` in `entry update` to mean five minutes before now rather than five minutes before the stored field.
 
 ## Runtime Rules
 

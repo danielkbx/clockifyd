@@ -324,9 +324,9 @@ fn push_core_commands(
         "cfd entry list{workspace_flag} --start today --end today --format json --sort asc\n"
     ));
     out.push_str(&format!("cfd status{workspace_flag} --format json\n"));
-    out.push_str(&format!("cfd entry add{workspace_flag} --start <iso> --duration <duration> --project {project_id} --description \"<work>\"\n"));
+    out.push_str(&format!("cfd entry add{workspace_flag} --start <time> --duration <duration> --project {project_id} --description \"<work>\"\n"));
     out.push_str(&format!(
-        "cfd entry update{workspace_flag} <entry-id> --end <iso>\n"
+        "cfd entry update{workspace_flag} <entry-id> --end <time>\n"
     ));
     out.push_str(&format!(
         "cfd entry update{workspace_flag} <entry-id> --duration <duration>\n"
@@ -426,7 +426,7 @@ fn push_recipes(
         "- Check current timer plus today/week totals: `cfd status{workspace_flag}`.\n"
     ));
     out.push_str(&format!(
-        "- Add a manual entry: `cfd entry add{workspace_flag} --start <iso> --duration 30m --project {project_id} --description \"<work>\"`.\n"
+        "- Add a manual entry: `cfd entry add{workspace_flag} --start <time> --duration 30m --project {project_id} --description \"<work>\"`.\n"
     ));
     out.push_str(&format!(
         "- Start a timer: `cfd timer start \"<work>\"{workspace_flag} --project {project_id}`.\n"
@@ -667,8 +667,8 @@ mod tests {
             "cfd entry list --workspace w1 --start today --end today --format json --sort asc"
         ));
         assert!(text.contains("`--sort asc|desc`"));
-        assert!(text.contains("cfd entry add --workspace w1 --start <iso> --duration <duration> --project p1 --description \"<work>\""));
-        assert!(text.contains("cfd entry update --workspace w1 <entry-id> --end <iso>"));
+        assert!(text.contains("cfd entry add --workspace w1 --start <time> --duration <duration> --project p1 --description \"<work>\""));
+        assert!(text.contains("cfd entry update --workspace w1 <entry-id> --end <time>"));
         assert!(text.contains("cfd entry update --workspace w1 <entry-id> --duration <duration>"));
         assert!(
             text.contains("cfd entry update --workspace w1 <entry-id> --description \"<work>\"")

@@ -299,6 +299,45 @@ fn timer_start_flag_project_overrides_config() {
 }
 
 #[test]
+fn timer_start_accepts_relative_start() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok("[]"),
+        MockResponse::ok("[]"),
+        MockResponse::ok(
+            r#"{"id":"e1","workspaceId":"w1","userId":"u1","projectId":"p1","description":"Run","timeInterval":{"start":"2026-04-23T09:50:00+00:00"}}"#,
+        ),
+    ]);
+
+    let output = bin()
+        .args([
+            "timer",
+            "start",
+            "Run",
+            "--project",
+            "p1",
+            "--start",
+            "-10m",
+            "--no-rounding",
+            "-y",
+        ])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), "e1\n");
+
+    let requests = server.requests();
+    let body: serde_json::Value = serde_json::from_str(&requests[3].body).unwrap();
+    assert_eq!(body["description"], "Run");
+    assert_eq!(body["projectId"], "p1");
+    assert_ne!(body["start"], "-10m");
+    assert!(body["start"].as_str().unwrap().starts_with("20"));
+}
+
+#[test]
 fn timer_start_rejects_description_flag() {
     let (_dir, config_path) = support::temp_config_path();
     fs::write(&config_path, "{\n  \"project\": \"p1\"\n}\n").unwrap();

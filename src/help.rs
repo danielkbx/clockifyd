@@ -238,7 +238,7 @@ fn alias_help() -> String {
   cfd alias create <alias> [--project <project-id>] [--task <task-id|none>] [--description <text|none>]
   cfd alias list [--format text|json|raw] [--no-meta]
   cfd alias delete <alias> [-y]
-  cfd <alias> start [--start <iso>] [--no-rounding] [-y]
+  cfd <alias> start [--start <time>] [--no-rounding] [-y]
 
 Aliases are local shortcuts for recurring timer starts.
 They bind a project and can optionally bind a task and description.
@@ -369,14 +369,16 @@ Create prints only the created task ID on stdout."
 
 fn entry_help() -> String {
     "Usage:
-  cfd entry list --start <iso|today|yesterday> --end <iso|today|yesterday> [filters] [--sort asc|desc]
+  cfd entry list --start <time|today|yesterday> --end <time|today|yesterday> [filters] [--sort asc|desc]
   cfd entry get <id> [--format json] [--no-meta] [--columns <list>]
   cfd entry text list [--project <id>] [--format json] [--no-meta] [--columns <list>]
-  cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
-  cfd entry update <id> [--start <iso>] [--end <iso> | --duration <d>] [fields...] [--no-rounding]
+  cfd entry add --start <time> (--end <time> | --duration <d>) [fields...] [--no-rounding]
+  cfd entry update <id> [--start <time>] [--end <time> | --duration <d>] [fields...] [--no-rounding]
   cfd entry delete <id> [-y]
 
 Date keywords `today` and `yesterday` are resolved in the local process timezone.
+Relative times use `now`, `+`, `-`, `h`, and `m`, for example `-15m`, `now-2h`, or `now+1h30m`.
+For `entry update`, bare relative values adjust the existing value of the same field.
 `--columns` applies to text output for `entry list` and `entry get`.
 It switches to a column view with one row per entry.
 
@@ -403,8 +405,8 @@ Update behavior:
 
 Available columns:
   id           Entry ID
-  start        Start timestamp
-  end          End timestamp or `-` for running entries
+  start        Start time
+  end          End time or `-` for running entries
   duration     ISO 8601 duration from Clockify, if present
   description  Entry description
   projectId    Project ID
@@ -426,8 +428,9 @@ Sorting:
 
 Examples:
   cfd entry list --start today --end today --columns start,end,description --sort asc
-  cfd entry add --start 2026-04-27T09:00:00Z --duration 1h --project <id>
-  cfd entry update <id> --end 2026-04-27T10:00:00Z
+  cfd entry add --start -45m --duration 45m --project <id>
+  cfd entry update <id> --end -5m
+  cfd entry update <id> --end now-5m
   cfd entry update <id> --duration 2h
   cfd entry update <id> --description \"Updated description\""
         .into()
@@ -511,9 +514,9 @@ Notes:
 fn timer_help() -> String {
     "Usage:
   cfd timer current [--format json] [--no-meta]
-  cfd timer start [description] [--start <iso>] [fields...] [--no-rounding]
-  cfd timer stop [--end <iso>] [--no-rounding] [-y]
-  cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <iso>] [--no-rounding] [-y]"
+  cfd timer start [description] [--start <time>] [fields...] [--no-rounding]
+  cfd timer stop [--end <time>] [--no-rounding] [-y]
+  cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <time>] [--no-rounding] [-y]"
         .to_string()
         + "
 
@@ -526,6 +529,7 @@ Notes:
   Mutating timer commands apply configured rounding unless --no-rounding is set.
   timer start accepts the description as one optional positional argument.
   timer start uses the current time unless --start is set.
+  Relative times such as -10m, now, and now-2h are accepted for timer start, stop, and resume.
   timer resume copies project, task, tags, and description from a recent entry.
   timer resume without -1..-9 lists recent entries and prompts for a selection.
   timer resume -1 uses the newest entry, -2 the second newest, and so on.
@@ -564,10 +568,11 @@ mod tests {
         assert!(help.contains("cfd entry list"));
         assert!(help.contains("cfd entry get <id> [--format json] [--no-meta] [--columns <list>]"));
         assert!(help.contains(
-            "cfd entry update <id> [--start <iso>] [--end <iso> | --duration <d>] [fields...] [--no-rounding]"
+            "cfd entry update <id> [--start <time>] [--end <time> | --duration <d>] [fields...] [--no-rounding]"
         ));
         assert!(help.contains("If --duration is used without --start, the new end time is calculated from the existing start time."));
         assert!(help.contains("today|yesterday"));
+        assert!(help.contains("Relative times use"));
         assert!(help.contains("--sort asc|desc"));
         assert!(help.contains("default asc"));
         assert!(help.contains("id,start,end,duration,description,projectId,projectName,task,tags"));

@@ -208,6 +208,33 @@ fn entry_list_forwards_text_filter_and_resolves_date_keywords() {
 }
 
 #[test]
+fn entry_list_accepts_relative_time_window() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok("[]"),
+    ]);
+
+    let output = bin()
+        .args([
+            "entry", "list", "--start", "-2h", "--end", "now", "--format", "json",
+        ])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), "[]\n");
+
+    let requests = server.requests();
+    assert!(requests[1].path.contains("start=20"));
+    assert!(requests[1].path.contains("end=20"));
+    assert!(!requests[1].path.contains("-2h"));
+    assert!(!requests[1].path.contains("now"));
+}
+
+#[test]
 fn entry_columns_requires_value_and_rejects_format_combo() {
     let missing = bin()
         .args(["entry", "list", "--columns"])
@@ -472,6 +499,44 @@ fn entry_add_no_rounding_overrides_config_and_prints_id_only() {
         requests[2].body,
         "{\"description\":\"Focus\",\"end\":\"2026-04-23T09:40:00+00:00\",\"start\":\"2026-04-23T09:07:00+00:00\"}"
     );
+}
+
+#[test]
+fn entry_add_accepts_relative_start_with_duration() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok("[]"),
+        MockResponse::ok(
+            r#"{"id":"e1","workspaceId":"w1","userId":"u1","description":"Focus","timeInterval":{"start":"2026-04-23T09:15:00+00:00","end":"2026-04-23T10:00:00+00:00","duration":"PT45M"}}"#,
+        ),
+    ]);
+
+    let output = bin()
+        .args([
+            "entry",
+            "add",
+            "--start",
+            "-45m",
+            "--duration",
+            "45m",
+            "--description",
+            "Focus",
+            "--no-rounding",
+        ])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), "e1\n");
+
+    let requests = server.requests();
+    let body: serde_json::Value = serde_json::from_str(&requests[2].body).unwrap();
+    assert_eq!(body["description"], "Focus");
+    assert_ne!(body["start"], "-45m");
+    assert!(body["start"].as_str().unwrap().starts_with("20"));
+    assert!(body["end"].as_str().unwrap().starts_with("20"));
 }
 
 #[test]

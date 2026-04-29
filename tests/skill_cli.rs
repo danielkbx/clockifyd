@@ -201,8 +201,8 @@ fn project_skill_resolves_workspace_and_project_and_includes_context() {
         "cfd entry list --workspace w1 --start today --end today --format json --sort asc"
     ));
     assert!(text.contains("`--sort asc|desc`"));
-    assert!(text.contains("cfd entry add --workspace w1 --start <iso> --duration <duration> --project p1 --description \"<work>\""));
-    assert!(text.contains("cfd entry update --workspace w1 <entry-id> --end <iso>"));
+    assert!(text.contains("cfd entry add --workspace w1 --start <time> --duration <duration> --project p1 --description \"<work>\""));
+    assert!(text.contains("cfd entry update --workspace w1 <entry-id> --end <time>"));
     assert!(text.contains("cfd entry update --workspace w1 <entry-id> --duration <duration>"));
     assert!(text.contains("cfd entry update --workspace w1 <entry-id> --description \"<work>\""));
     assert!(

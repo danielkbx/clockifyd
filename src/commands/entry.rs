@@ -163,12 +163,12 @@ fn update_entry<T: HttpTransport>(
 ) -> Result<(), CfdError> {
     let entry_id = args.positional.first().ok_or_else(|| {
         CfdError::message(
-            "usage: cfd entry update <id> [--start <iso>] [--end <iso> | --duration <d>] [fields...]",
+            "usage: cfd entry update <id> [--start <time>] [--end <time> | --duration <d>] [fields...]",
         )
     })?;
     if !has_update_flags(args) {
         return Err(CfdError::message(
-            "usage: cfd entry update <id> [--start <iso>] [--end <iso> | --duration <d>] [fields...]",
+            "usage: cfd entry update <id> [--start <time>] [--end <time> | --duration <d>] [fields...]",
         ));
     }
     let user = client.get_current_user()?;
@@ -240,24 +240,24 @@ fn build_time_entry_payload(
 ) -> Result<serde_json::Value, CfdError> {
     let start = args.flags.get("start").map(String::as_str);
     let start = start.ok_or_else(|| {
-        CfdError::message("usage: cfd entry add --start <iso> (--end <iso> | --duration <d>)")
+        CfdError::message("usage: cfd entry add --start <time> (--end <time> | --duration <d>)")
     })?;
     let end = args.flags.get("end").map(String::as_str);
     let duration_value = args.flags.get("duration").map(String::as_str);
 
     if end.is_some() == duration_value.is_some() {
         return Err(CfdError::message(
-            "use exactly one of --end <iso> or --duration <d>",
+            "use exactly one of --end <time> or --duration <d>",
         ));
     }
 
     let rounding = config::resolve_rounding(args.no_rounding, config_state)?;
-    let start = datetime::round_timestamp(start, rounding)?;
+    let start = datetime::resolve_and_round_timestamp("start", start, rounding)?;
     let start_dt = chrono::DateTime::parse_from_rfc3339(&start)
         .map_err(|_| CfdError::message(format!("invalid start: {start}")))?;
     let end_dt = match (end, duration_value) {
         (Some(end), None) => {
-            let end = datetime::round_timestamp(end, rounding)?;
+            let end = datetime::resolve_and_round_timestamp("end", end, rounding)?;
             chrono::DateTime::parse_from_rfc3339(&end)
                 .map_err(|_| CfdError::message(format!("invalid end: {end}")))?
         }
@@ -296,7 +296,7 @@ fn build_time_entry_update_payload(
 ) -> Result<serde_json::Value, CfdError> {
     if !has_update_flags(args) {
         return Err(CfdError::message(
-            "usage: cfd entry update <id> [--start <iso>] [--end <iso> | --duration <d>] [fields...]",
+            "usage: cfd entry update <id> [--start <time>] [--end <time> | --duration <d>] [fields...]",
         ));
     }
 
@@ -304,20 +304,30 @@ fn build_time_entry_update_payload(
     let duration_value = args.flags.get("duration").map(String::as_str);
     if end.is_some() && duration_value.is_some() {
         return Err(CfdError::message(
-            "use at most one of --end <iso> or --duration <d>",
+            "use at most one of --end <time> or --duration <d>",
         ));
     }
 
     let rounding = config::resolve_rounding(args.no_rounding, config_state)?;
     let start = match args.flags.get("start").map(String::as_str) {
-        Some(start) => datetime::round_timestamp(start, rounding)?,
+        Some(start) => datetime::resolve_and_round_existing_timestamp(
+            "start",
+            start,
+            Some(&existing.time_interval.start),
+            rounding,
+        )?,
         None => existing.time_interval.start.clone(),
     };
     let start_dt = chrono::DateTime::parse_from_rfc3339(&start)
         .map_err(|_| CfdError::message(format!("invalid start: {start}")))?;
 
     let end = match (end, duration_value) {
-        (Some(end), None) => datetime::round_timestamp(end, rounding)?,
+        (Some(end), None) => datetime::resolve_and_round_existing_timestamp(
+            "end",
+            end,
+            existing.time_interval.end.as_deref(),
+            rounding,
+        )?,
         (None, Some(duration)) => {
             let parsed = duration::parse_duration(duration)?;
             let calculated_end = (start_dt + parsed).to_rfc3339();
@@ -325,7 +335,7 @@ fn build_time_entry_update_payload(
         }
         (None, None) => existing.time_interval.end.clone().ok_or_else(|| {
             CfdError::message(
-                "entry update requires an end time for running entries; use --end <iso> or --duration <d>",
+                "entry update requires an end time for running entries; use --end <time> or --duration <d>",
             )
         })?,
         (Some(_), Some(_)) => unreachable!(),
@@ -1481,6 +1491,98 @@ mod tests {
 
         assert_eq!(payload["start"], "2026-04-23T10:00:00+00:00");
         assert_eq!(payload["end"], "2026-04-23T12:00:00+00:00");
+    }
+
+    #[test]
+    fn update_payload_adjusts_existing_end_with_bare_relative_value() {
+        let args = ParsedArgs {
+            resource: Some("entry".into()),
+            action: Some("update".into()),
+            subaction: None,
+            positional: vec!["e1".into()],
+            flags: std::collections::HashMap::from([("end".into(), "-5m".into())]),
+            output: OutputOptions::default(),
+            workspace: None,
+            yes: false,
+            no_rounding: false,
+        };
+        let existing = closed_existing_entry();
+
+        let payload =
+            build_time_entry_update_payload(&args, &StoredConfig::default(), &existing).unwrap();
+
+        assert_eq!(payload["start"], "2026-04-23T09:00:00Z");
+        assert_eq!(payload["end"], "2026-04-23T09:55:00+00:00");
+    }
+
+    #[test]
+    fn update_payload_adjusts_existing_start_with_bare_relative_value() {
+        let args = ParsedArgs {
+            resource: Some("entry".into()),
+            action: Some("update".into()),
+            subaction: None,
+            positional: vec!["e1".into()],
+            flags: std::collections::HashMap::from([("start".into(), "+10m".into())]),
+            output: OutputOptions::default(),
+            workspace: None,
+            yes: false,
+            no_rounding: false,
+        };
+        let existing = closed_existing_entry();
+
+        let payload =
+            build_time_entry_update_payload(&args, &StoredConfig::default(), &existing).unwrap();
+
+        assert_eq!(payload["start"], "2026-04-23T09:10:00+00:00");
+        assert_eq!(payload["end"], "2026-04-23T10:00:00Z");
+    }
+
+    #[test]
+    fn update_payload_uses_adjusted_start_for_duration() {
+        let args = ParsedArgs {
+            resource: Some("entry".into()),
+            action: Some("update".into()),
+            subaction: None,
+            positional: vec!["e1".into()],
+            flags: std::collections::HashMap::from([
+                ("start".into(), "+10m".into()),
+                ("duration".into(), "1h".into()),
+            ]),
+            output: OutputOptions::default(),
+            workspace: None,
+            yes: false,
+            no_rounding: false,
+        };
+        let existing = closed_existing_entry();
+
+        let payload =
+            build_time_entry_update_payload(&args, &StoredConfig::default(), &existing).unwrap();
+
+        assert_eq!(payload["start"], "2026-04-23T09:10:00+00:00");
+        assert_eq!(payload["end"], "2026-04-23T10:10:00+00:00");
+    }
+
+    #[test]
+    fn update_payload_rejects_bare_relative_end_for_running_entry() {
+        let args = ParsedArgs {
+            resource: Some("entry".into()),
+            action: Some("update".into()),
+            subaction: None,
+            positional: vec!["e1".into()],
+            flags: std::collections::HashMap::from([("end".into(), "-5m".into())]),
+            output: OutputOptions::default(),
+            workspace: None,
+            yes: false,
+            no_rounding: false,
+        };
+        let existing = entry("e1", "Focus", "2026-04-23T09:00:00Z");
+
+        let error = build_time_entry_update_payload(&args, &StoredConfig::default(), &existing)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("cannot adjust missing end time"));
+        assert!(error.contains("--end now-5m"));
     }
 
     #[test]

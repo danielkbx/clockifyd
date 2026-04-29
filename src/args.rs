@@ -43,7 +43,10 @@ pub fn parse_args(argv: &[String]) -> ParsedArgs {
         if let Some(key) = arg.strip_prefix("--") {
             if let Some((name, value)) = key.split_once('=') {
                 flags.insert(name.to_string(), value.to_string());
-            } else if takes_value(key) && i + 1 < argv.len() && !argv[i + 1].starts_with('-') {
+            } else if takes_value(key)
+                && i + 1 < argv.len()
+                && should_consume_value(key, &argv[i + 1])
+            {
                 flags.insert(key.to_string(), argv[i + 1].clone());
                 i += 1;
             } else {
@@ -89,6 +92,10 @@ pub fn parse_args(argv: &[String]) -> ParsedArgs {
 
 pub(crate) fn takes_value(flag: &str) -> bool {
     VALUE_FLAGS.contains(&flag)
+}
+
+fn should_consume_value(flag: &str, next: &str) -> bool {
+    !next.starts_with('-') || (matches!(flag, "start" | "end") && !next.starts_with("--"))
 }
 
 fn resume_selector_flag(arg: &str) -> Option<char> {
@@ -203,6 +210,37 @@ mod tests {
             parsed.flags.get("end").map(String::as_str),
             Some("yesterday")
         );
+    }
+
+    #[test]
+    fn parses_negative_relative_datetime_values() {
+        let parsed = args(&["entry", "list", "--start", "-15m", "--end", "now"]);
+
+        assert_eq!(parsed.flags.get("start").map(String::as_str), Some("-15m"));
+        assert_eq!(parsed.flags.get("end").map(String::as_str), Some("now"));
+    }
+
+    #[test]
+    fn parses_negative_relative_datetime_equals_values() {
+        let parsed = args(&["entry", "list", "--start=-15m"]);
+
+        assert_eq!(parsed.flags.get("start").map(String::as_str), Some("-15m"));
+    }
+
+    #[test]
+    fn resume_selector_still_works_with_negative_relative_start() {
+        let parsed = args(&["timer", "resume", "--start", "-15m", "-1"]);
+
+        assert_eq!(parsed.flags.get("start").map(String::as_str), Some("-15m"));
+        assert_eq!(parsed.flags.get("1").map(String::as_str), Some("true"));
+    }
+
+    #[test]
+    fn resume_start_consumes_unitless_negative_value_for_validation() {
+        let parsed = args(&["timer", "resume", "--start", "-1"]);
+
+        assert_eq!(parsed.flags.get("start").map(String::as_str), Some("-1"));
+        assert!(!parsed.flags.contains_key("1"));
     }
 
     #[test]

@@ -69,6 +69,7 @@ Specific coverage:
 24. `timer resume` lists recent entries interactively, supports `-1` through `-9`, copies project/task/tags/description, and keeps `-y` semantics for direct-selection and overlap prompts
 25. `entry update` can update only `--end`, only `--duration`, or only metadata; omitted project/task/tags are preserved from the existing entry
 26. `entry update --duration <d>` without `--start` calculates the new end from the existing start, and help text documents that behavior
+27. Relative `--start` and `--end` inputs support `now`, bare `+duration` or `-duration`, and `now+duration` or `now-duration`; `entry update` interprets bare relative durations against the existing same field while other commands interpret them relative to current time
 
 ## Rust-specific Notes
 
@@ -110,6 +111,7 @@ Important process rules:
 | Timer Aliases | `13-timer-aliases.md` | alias create/list/delete, dynamic alias start, interactive default prompts |
 | Timer Resume | `14-timer-resume.md` | interactive and direct recent-entry resume, copied fields, confirmation defaults |
 | Status Overview | `15-status-overview.md` | timer state, grouped today/week summaries, week-start option, structured JSON |
+| Relative Datetime Inputs | `16-relative-datetime.md` | relative `--start`/`--end`, update-relative existing fields, timer relative times, rounding interaction |
 
 ## Conventions
 

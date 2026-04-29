@@ -257,10 +257,10 @@ Tasks are created explicitly. `task create` prints only the created task ID on s
 ### Time Entries
 
 ```bash
-cfd entry list --start <iso|today|yesterday> --end <iso|today|yesterday> [--project <id>] [--task <id>] [--tag <id>...] [--text <value>] [--columns <list>] [--sort asc|desc]
+cfd entry list --start <time|today|yesterday> --end <time|today|yesterday> [--project <id>] [--task <id>] [--tag <id>...] [--text <value>] [--columns <list>] [--sort asc|desc]
 cfd entry get <id> [--columns <list>]
-cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
-cfd entry update <id> [--start <iso>] [--end <iso> | --duration <d>] [fields...] [--no-rounding]
+cfd entry add --start <time> (--end <time> | --duration <d>) [fields...] [--no-rounding]
+cfd entry update <id> [--start <time>] [--end <time> | --duration <d>] [fields...] [--no-rounding]
 cfd entry delete <id> [-y]
 
 cfd today [--sort asc|desc]
@@ -277,6 +277,24 @@ Entry fields:
 ```
 
 For `entry update`, omitted fields keep their existing values. If `--start` is omitted, the existing start time is used. If `--duration` is used without `--start`, the new end time is calculated from the existing start time. If `--duration` is used with `--start`, the new end time is calculated from the new start time.
+
+### Relative Times
+
+`--start` and `--end` accept ISO timestamps and relative times. Relative times use `now`, `+`, `-`, `h`, and `m`.
+
+Examples:
+
+```bash
+now
+-5m
++30m
+now-2h
+now+1h30m
+```
+
+For `entry add`, `entry list`, `timer start`, `timer resume`, and `timer stop`, values such as `-15m` are relative to the current time. For `entry update`, values without `now` adjust the existing stored value of the same field: `--start -5m` moves the existing start 5 minutes earlier, `--end -5m` moves the existing end 5 minutes earlier, and `--end +10m` moves the existing end 10 minutes later.
+
+Use `now-5m` when updating an entry and you mean five minutes before now instead of five minutes before the stored end.
 
 `today` and `yesterday` use the local process timezone. `entry list` sorts by start time ascending by default; pass `--sort desc` to show newest entries first. Create and update commands print only the entry ID. Delete prompts unless `-y` is passed.
 
@@ -322,9 +340,9 @@ cfd entry text list --columns text,lastUsed
 
 ```bash
 cfd timer current
-cfd timer start [description] [--project <project-id>] [--task <task-id>] [--tag <tag-id>] [--no-rounding]
-cfd timer stop [--end <iso>] [--no-rounding] [-y]
-cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <iso>] [--no-rounding] [-y]
+cfd timer start [description] [--start <time>] [--project <project-id>] [--task <task-id>] [--tag <tag-id>] [--no-rounding]
+cfd timer stop [--end <time>] [--no-rounding] [-y]
+cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <time>] [--no-rounding] [-y]
 ```
 
 `timer start` accepts the description as one optional positional argument. Use quotes for descriptions with spaces. `timer stop` uses the current time unless you pass an explicit `--end`.
@@ -436,6 +454,8 @@ cfd config get rounding
 cfd timer start "ABC-1: Implement feature"
 cfd timer current
 cfd timer stop
+cfd timer start "ABC-1: Implement feature" --start -10m
+cfd timer stop --end now
 ```
 
 With project and task:
@@ -448,12 +468,15 @@ cfd timer start "ABC-1: Implement feature" --project <project-id> --task <task-i
 
 ```bash
 cfd entry add --start 2026-04-26T09:00:00Z --duration 1h30m --project <project-id> --description "ABC-1: Implement feature"
+cfd entry add --start -45m --duration 45m --project <project-id> --description "ABC-1: Implement feature"
 ```
 
 ### Update An Entry
 
 ```bash
 cfd entry update <entry-id> --end 2026-04-26T11:00:00Z
+cfd entry update <entry-id> --end -5m
+cfd entry update <entry-id> --end now-5m
 cfd entry update <entry-id> --duration 2h
 cfd entry update <entry-id> --description "ABC-1: Implement feature"
 ```
@@ -464,6 +487,7 @@ cfd entry update <entry-id> --description "ABC-1: Implement feature"
 cfd today
 cfd entry list --start today --end today --columns start,end,duration,description --sort asc
 cfd entry list --start today --end today --sort desc
+cfd entry list --start -2h --end now --columns start,end,duration,description
 ```
 
 ### Check Current Status
@@ -501,11 +525,11 @@ cfd config unset rounding
 Disable rounding for one command:
 
 ```bash
-cfd entry add --start <iso> --duration 20m --no-rounding
+cfd entry add --start <time> --duration 20m --no-rounding
 cfd timer stop --no-rounding
 ```
 
-Rounding applies to `entry add`, `entry update`, `timer start`, `timer stop`, and `timer resume`.
+Rounding applies to `entry add`, `entry update`, `timer start`, `timer stop`, and `timer resume`. Relative times are resolved before rounding is applied.
 
 When a mutating command would create overlapping entries for the current user, `cfd` warns on stderr and asks for confirmation. Use `-y` to continue without the prompt. If rounding causes `end <= start`, retry with `--no-rounding`.
 

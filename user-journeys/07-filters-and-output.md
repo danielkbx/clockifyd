@@ -11,7 +11,7 @@ Verify list filters and output modes.
 
 ## Steps
 
-1. Run `cfd entry list --start <iso> --end <iso> --format text`
+1. Run `cfd entry list --start <time> --end <time> --format text`
 2. Run the same command with `--format json`
 3. Run the same command with `--no-meta`
 4. Run `cfd entry list --start today --end today`

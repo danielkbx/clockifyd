@@ -54,12 +54,12 @@ fn start_timer<T: HttpTransport>(
 ) -> Result<(), CfdError> {
     if args.flags.contains_key("description") {
         return Err(CfdError::message(
-            "usage: cfd timer start [description] [--start <iso>] [fields...] [--no-rounding]",
+            "usage: cfd timer start [description] [--start <time>] [fields...] [--no-rounding]",
         ));
     }
     if args.positional.len() > 1 {
         return Err(CfdError::message(
-            "usage: cfd timer start [description] [--start <iso>] [fields...] [--no-rounding]",
+            "usage: cfd timer start [description] [--start <time>] [fields...] [--no-rounding]",
         ));
     }
     let explicit_project = args.flags.get("project").map(String::as_str);
@@ -97,7 +97,7 @@ pub(crate) fn start_timer_with_fields<T: HttpTransport>(
         .cloned()
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
     let rounding = config::resolve_rounding(args.no_rounding, config_state)?;
-    let start = datetime::round_timestamp(&start, rounding)?;
+    let start = datetime::resolve_and_round_timestamp("start", &start, rounding)?;
     let _ = chrono::DateTime::parse_from_rfc3339(&start)
         .map_err(|_| CfdError::message(format!("invalid start: {start}")))?;
 
@@ -211,7 +211,7 @@ fn resume_timer<T: HttpTransport>(
 fn validate_resume_args(args: &ParsedArgs) -> Result<(), CfdError> {
     if !args.positional.is_empty() {
         return Err(CfdError::message(
-            "usage: cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <iso>] [--no-rounding] [-y]",
+            "usage: cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <time>] [--no-rounding] [-y]",
         ));
     }
     for flag in ["project", "task", "tag", "description"] {
@@ -309,7 +309,7 @@ fn stop_timer<T: HttpTransport>(
         .cloned()
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
     let rounding = config::resolve_rounding(args.no_rounding, config_state)?;
-    let end = datetime::round_timestamp(&end, rounding)?;
+    let end = datetime::resolve_and_round_timestamp("end", &end, rounding)?;
     let end_dt = chrono::DateTime::parse_from_rfc3339(&end)
         .map_err(|_| CfdError::message(format!("invalid end: {end}")))?;
     let start_dt = chrono::DateTime::parse_from_rfc3339(&current.time_interval.start)

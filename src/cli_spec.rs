@@ -316,7 +316,7 @@ pub fn cli_spec() -> CommandSpec {
                         "start",
                         "Start timer",
                         vec![
-                            option_value("start", "Start timestamp", "iso", &[]),
+                            option_value("start", "Start time", "time", &[]),
                             option_value("project", "Project ID", "id", &[]),
                             option_value("task", "Task ID", "id", &[]),
                             option_value_repeatable("tag", "Tag ID", "id", &[]),
@@ -327,7 +327,7 @@ pub fn cli_spec() -> CommandSpec {
                     command(
                         "stop",
                         "Stop timer",
-                        vec![option_value("end", "End timestamp", "iso", &[])],
+                        vec![option_value("end", "End time", "time", &[])],
                         vec![],
                         vec![],
                     ),
@@ -335,7 +335,7 @@ pub fn cli_spec() -> CommandSpec {
                         "resume",
                         "Resume a recent time entry",
                         vec![
-                            option_value("start", "Start timestamp", "iso", &[]),
+                            option_value("start", "Start time", "time", &[]),
                             option_short_flag('1', "Resume newest entry"),
                             option_short_flag('2', "Resume second newest entry"),
                             option_short_flag('3', "Resume third newest entry"),
@@ -436,8 +436,8 @@ fn entry_mutation_command(name: &'static str, about: &'static str, has_id: bool)
         name,
         about,
         vec![
-            option_value("start", "Start timestamp", "iso", &[]),
-            option_value("end", "End timestamp", "iso", &[]),
+            option_value("start", "Start time", "time", &[]),
+            option_value("end", "End time", "time", &[]),
             option_value("duration", "Duration", "duration", &[]),
             option_value("project", "Project ID", "id", &[]),
             option_value("task", "Task ID", "id", &[]),
