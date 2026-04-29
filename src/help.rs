@@ -516,6 +516,7 @@ fn timer_help() -> String {
   cfd timer current [--format json] [--no-meta]
   cfd timer start [description] [--start <time>] [fields...] [--no-rounding]
   cfd timer stop [--end <time>] [--no-rounding] [-y]
+  cfd timer resume [filter] [-n<count>] [--start <time>] [--no-rounding] [-y]
   cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <time>] [--no-rounding] [-y]"
         .to_string()
         + "
@@ -532,7 +533,10 @@ Notes:
   Relative times such as -10m, now, and now-2h are accepted for timer start, stop, and resume.
   timer resume copies project, task, tags, and description from a recent entry.
   timer resume without -1..-9 lists recent entries and prompts for a selection.
+  timer resume -n<count> changes the interactive list size; default: 10.
+  timer resume \"text\" filters the interactive list by description or task name.
   timer resume -1 uses the newest entry, -2 the second newest, and so on.
+  -n<count> and filters are not supported with direct -1..-9 selectors.
   Direct resume prompts with default yes unless -y is set.
   timer stop and resume start paths check overlaps and ask for confirmation unless -y is set."
 }

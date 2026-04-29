@@ -11,6 +11,8 @@ use crate::types::{EntryFilters, OverlapWarning, StoredConfig, TimeEntry};
 use std::collections::BTreeMap;
 use std::io::{self, IsTerminal};
 
+type ResumeTaskNames = BTreeMap<(String, String), String>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TimerStartFields {
     pub project_id: String,
@@ -135,9 +137,8 @@ fn resume_timer<T: HttpTransport>(
     workspace_id: &str,
     config_state: &StoredConfig,
 ) -> Result<(), CfdError> {
-    validate_resume_args(args)?;
-    let selector = resume_selector(args)?;
-    if (!args.yes || selector.is_none()) && !io::stdin().is_terminal() {
+    let options = resume_options(args)?;
+    if (!args.yes || options.selector.is_none()) && !io::stdin().is_terminal() {
         return Err(CfdError::message(
             "cfd timer resume requires an interactive terminal",
         ));
@@ -154,13 +155,33 @@ fn resume_timer<T: HttpTransport>(
         .filter(|entry| entry.project_id.is_some())
         .collect::<Vec<_>>();
     entries.sort_by(|a, b| b.time_interval.start.cmp(&a.time_interval.start));
-    entries.truncate(10);
 
-    if entries.is_empty() {
-        return Err(CfdError::message("no recent entries to resume"));
+    let task_names = if options.filter.is_some() {
+        load_resume_task_names(client, workspace_id, &entries)
+    } else {
+        ResumeTaskNames::new()
+    };
+
+    if let Some(filter) = &options.filter {
+        entries.retain(|entry| resume_entry_matches_filter(entry, filter, &task_names));
     }
 
-    let selected_index = match selector {
+    if options.selector.is_none() {
+        entries.truncate(options.interactive_limit);
+    } else {
+        entries.truncate(10);
+    }
+
+    if entries.is_empty() {
+        return Err(match &options.filter {
+            Some(filter) => {
+                CfdError::message(format!("no recent entries matching filter: {filter}"))
+            }
+            None => CfdError::message("no recent entries to resume"),
+        });
+    }
+
+    let selected_index = match options.selector {
         Some(selector) => {
             let index = usize::from(selector - 1);
             if index >= entries.len() {
@@ -174,7 +195,10 @@ fn resume_timer<T: HttpTransport>(
                 std::slice::from_ref(&entries[index]),
             );
             eprintln!("Selected entry:");
-            eprintln!("  {}", format_resume_entry(&entries[index], &project_names));
+            eprintln!(
+                "  {}",
+                format_resume_entry(&entries[index], &project_names, &task_names)
+            );
             if !args.yes && !input::confirm_default_yes("Resume this entry?")? {
                 return Err(CfdError::message("aborted"));
             }
@@ -184,7 +208,10 @@ fn resume_timer<T: HttpTransport>(
             let project_names = load_resume_project_names(client, workspace_id, &entries);
             eprintln!("Recent entries:");
             for (index, entry) in entries.iter().enumerate() {
-                eprintln!("  {index}  {}", format_resume_entry(entry, &project_names));
+                eprintln!(
+                    "  {index}  {}",
+                    format_resume_entry(entry, &project_names, &task_names)
+                );
             }
             let mut reader = io::stdin().lock();
             let mut writer = io::stderr().lock();
@@ -208,12 +235,14 @@ fn resume_timer<T: HttpTransport>(
     start_timer_with_fields(client, args, workspace_id, config_state, fields)
 }
 
-fn validate_resume_args(args: &ParsedArgs) -> Result<(), CfdError> {
-    if !args.positional.is_empty() {
-        return Err(CfdError::message(
-            "usage: cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <time>] [--no-rounding] [-y]",
-        ));
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResumeOptions {
+    selector: Option<u8>,
+    filter: Option<String>,
+    interactive_limit: usize,
+}
+
+fn resume_options(args: &ParsedArgs) -> Result<ResumeOptions, CfdError> {
     for flag in ["project", "task", "tag", "description"] {
         if args.flags.contains_key(flag) {
             return Err(CfdError::message(format!(
@@ -221,8 +250,51 @@ fn validate_resume_args(args: &ParsedArgs) -> Result<(), CfdError> {
             )));
         }
     }
-    resume_selector(args)?;
-    Ok(())
+
+    let selector = resume_selector(args)?;
+    let mut filter = None;
+    let mut interactive_limit = 10;
+    let mut has_limit = false;
+
+    for positional in &args.positional {
+        if let Some(value) = positional.strip_prefix("-n") {
+            if value.is_empty() {
+                return Err(CfdError::message(
+                    "invalid resume count: use -n<count> with a positive integer",
+                ));
+            }
+            interactive_limit = value.parse::<usize>().map_err(|_| {
+                CfdError::message("invalid resume count: use -n<count> with a positive integer")
+            })?;
+            if interactive_limit == 0 {
+                return Err(CfdError::message(
+                    "invalid resume count: use -n<count> with a positive integer",
+                ));
+            }
+            has_limit = true;
+        } else if filter.is_none() {
+            filter = Some(positional.clone());
+        } else {
+            return Err(CfdError::message(resume_usage()));
+        }
+    }
+
+    if selector.is_some() && has_limit {
+        return Err(CfdError::message(
+            "-n<count> is only supported for interactive timer resume",
+        ));
+    }
+    if selector.is_some() && filter.is_some() {
+        return Err(CfdError::message(
+            "filters are only supported for interactive timer resume",
+        ));
+    }
+
+    Ok(ResumeOptions {
+        selector,
+        filter,
+        interactive_limit,
+    })
 }
 
 fn resume_selector(args: &ParsedArgs) -> Result<Option<u8>, CfdError> {
@@ -236,6 +308,10 @@ fn resume_selector(args: &ParsedArgs) -> Result<Option<u8>, CfdError> {
             "use only one resume selector: -1 through -9",
         )),
     }
+}
+
+fn resume_usage() -> &'static str {
+    "usage: cfd timer resume [filter] [-n<count>] [--start <time>] [--no-rounding] [-y]\n       cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <time>] [--no-rounding] [-y]"
 }
 
 fn load_resume_project_names<T: HttpTransport>(
@@ -260,7 +336,59 @@ fn load_resume_project_names<T: HttpTransport>(
     names
 }
 
-fn format_resume_entry(entry: &TimeEntry, project_names: &BTreeMap<String, String>) -> String {
+fn load_resume_task_names<T: HttpTransport>(
+    client: &ClockifyClient<T>,
+    workspace_id: &str,
+    entries: &[TimeEntry],
+) -> ResumeTaskNames {
+    let mut names = ResumeTaskNames::new();
+    let mut projects = entries
+        .iter()
+        .filter_map(|entry| entry.project_id.as_deref())
+        .collect::<Vec<_>>();
+    projects.sort_unstable();
+    projects.dedup();
+
+    for project_id in projects {
+        let Ok(tasks) = client.list_tasks(workspace_id, project_id) else {
+            continue;
+        };
+        for task in tasks {
+            names.insert((project_id.to_owned(), task.id), task.name);
+        }
+    }
+
+    names
+}
+
+fn resume_entry_matches_filter(
+    entry: &TimeEntry,
+    filter: &str,
+    task_names: &ResumeTaskNames,
+) -> bool {
+    let needle = filter.to_lowercase();
+    if entry.description.to_lowercase().contains(&needle) {
+        return true;
+    }
+
+    let Some(project_id) = entry.project_id.as_ref() else {
+        return false;
+    };
+    let Some(task_id) = entry.task_id.as_ref() else {
+        return false;
+    };
+
+    task_names
+        .get(&(project_id.clone(), task_id.clone()))
+        .map(|name| name.to_lowercase().contains(&needle))
+        .unwrap_or(false)
+}
+
+fn format_resume_entry(
+    entry: &TimeEntry,
+    project_names: &BTreeMap<String, String>,
+    task_names: &ResumeTaskNames,
+) -> String {
     let time = format_resume_start(&entry.time_interval.start)
         .unwrap_or_else(|_| entry.time_interval.start.clone());
     let project = entry
@@ -269,7 +397,14 @@ fn format_resume_entry(entry: &TimeEntry, project_names: &BTreeMap<String, Strin
         .and_then(|project_id| project_names.get(project_id).map(String::as_str))
         .or(entry.project_id.as_deref())
         .unwrap_or("-");
-    let task = entry.task_id.as_deref().unwrap_or("-");
+    let task = entry
+        .project_id
+        .as_ref()
+        .zip(entry.task_id.as_ref())
+        .and_then(|(project_id, task_id)| task_names.get(&(project_id.clone(), task_id.clone())))
+        .map(String::as_str)
+        .or(entry.task_id.as_deref())
+        .unwrap_or("-");
     let description = match entry.description.trim() {
         "" => "-",
         value => value,
@@ -528,6 +663,7 @@ fn maybe_confirm_overlap(warning: &Option<OverlapWarning>, yes: bool) -> Result<
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::rc::Rc;
 
     use super::*;
@@ -539,6 +675,112 @@ mod tests {
         timer_response: String,
         write_response: String,
         method: Rc<RefCell<Option<String>>>,
+    }
+
+    fn resume_args(positional: &[&str], flag_keys: &[&str]) -> ParsedArgs {
+        ParsedArgs {
+            resource: Some("timer".into()),
+            action: Some("resume".into()),
+            subaction: None,
+            positional: positional.iter().map(|value| (*value).into()).collect(),
+            flags: flag_keys
+                .iter()
+                .map(|key| ((*key).into(), "true".into()))
+                .collect::<HashMap<_, _>>(),
+            output: OutputOptions::default(),
+            workspace: None,
+            yes: false,
+            no_rounding: false,
+        }
+    }
+
+    fn resume_entry(description: &str, task_id: Option<&str>) -> TimeEntry {
+        TimeEntry {
+            id: "e1".into(),
+            workspace_id: "w1".into(),
+            user_id: Some("u1".into()),
+            project_id: Some("p1".into()),
+            task_id: task_id.map(str::to_owned),
+            tag_ids: vec![],
+            description: description.into(),
+            time_interval: TimeInterval {
+                start: "2026-04-23T09:00:00Z".into(),
+                end: Some("2026-04-23T10:00:00Z".into()),
+                duration: None,
+            },
+        }
+    }
+
+    #[test]
+    fn parses_interactive_resume_options() {
+        assert_eq!(
+            resume_options(&resume_args(&[], &[])).unwrap(),
+            ResumeOptions {
+                selector: None,
+                filter: None,
+                interactive_limit: 10,
+            }
+        );
+        assert_eq!(
+            resume_options(&resume_args(&["-n5", "Needle"], &[])).unwrap(),
+            ResumeOptions {
+                selector: None,
+                filter: Some("Needle".into()),
+                interactive_limit: 5,
+            }
+        );
+        assert_eq!(
+            resume_options(&resume_args(&[], &["2"])).unwrap(),
+            ResumeOptions {
+                selector: Some(2),
+                filter: None,
+                interactive_limit: 10,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_resume_options() {
+        for positional in [vec!["-n"], vec!["-n0"], vec!["-nabc"]] {
+            let error = resume_options(&resume_args(&positional, &[]))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("invalid resume count"));
+        }
+
+        let limit_with_selector = resume_options(&resume_args(&["-n2"], &["1"]))
+            .unwrap_err()
+            .to_string();
+        assert!(limit_with_selector.contains("only supported for interactive"));
+
+        let filter_with_selector = resume_options(&resume_args(&["Needle"], &["1"]))
+            .unwrap_err()
+            .to_string();
+        assert!(filter_with_selector.contains("filters are only supported"));
+    }
+
+    #[test]
+    fn resume_filter_matches_description_or_task_name_case_insensitively() {
+        let entry = resume_entry("Deep Focus", Some("t1"));
+        let mut task_names = ResumeTaskNames::new();
+        task_names.insert(("p1".into(), "t1".into()), "ABC-123 Review".into());
+
+        assert!(resume_entry_matches_filter(&entry, "focus", &task_names));
+        assert!(resume_entry_matches_filter(&entry, "review", &task_names));
+        assert!(!resume_entry_matches_filter(&entry, "missing", &task_names));
+    }
+
+    #[test]
+    fn resume_entry_display_prefers_task_name_when_loaded() {
+        let entry = resume_entry("Run", Some("t1"));
+        let project_names = BTreeMap::from([("p1".into(), "Project One".into())]);
+        let task_names = ResumeTaskNames::from([(("p1".into(), "t1".into()), "Task One".into())]);
+
+        let rendered = format_resume_entry(&entry, &project_names, &task_names);
+
+        assert!(rendered.contains("Project One"));
+        assert!(rendered.contains("Task One"));
+        assert!(!rendered.contains(" t1 "));
     }
 
     impl MockTransport {

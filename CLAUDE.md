@@ -1,6 +1,6 @@
 # clockifyd - Clockify CLI
 
-`cfd` is the released Clockify CLI for this repository. Current package version: `1.6.0`.
+`cfd` is the released Clockify CLI for this repository. Current package version: `1.6.1`.
 
 The public README is user documentation. This file and `.agents/*.md` are maintainer and agent context.
 
@@ -101,6 +101,7 @@ cfd today [--sort asc|desc]
 cfd timer current
 cfd timer start [description] [--start <time>] [--project <id>] [--task <id>] [--tag <id>] [--no-rounding]
 cfd timer stop [--end <time>] [--no-rounding] [-y]
+cfd timer resume [filter] [-n<count>] [--start <time>] [--no-rounding] [-y]
 cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <time>] [--no-rounding] [-y]
 ```
 
@@ -192,7 +193,7 @@ Credential and settings resolution order:
 - `config interactive` reuses the existing API key from env or config and updates workspace/project/rounding.
 - Mutating time commands apply configured rounding unless `--no-rounding` is present.
 - `entry update` may omit fields; omitted values are loaded from the existing entry before sending Clockify `PUT`. `--duration` without `--start` calculates the new end from the existing start.
-- `timer resume` copies project/task/tags/description from a recent entry, uses a fresh start time, and supports `-1` through `-9` for direct recent-entry selection.
+- `timer resume` copies project/task/tags/description from a recent entry and uses a fresh start time. Interactive resume supports `-n<count>` to change the displayed candidate count and a quoted text filter matching description or task name. Direct resume supports `-1` through `-9`; direct selectors do not accept filters or `-n<count>`.
 - Overlap warnings apply to `entry add`, `entry update`, `timer start`, `timer stop`, and `timer resume`.
 - Overlap is warning plus confirmation, not a hard error.
 - `-y` skips confirmation prompts but must not skip overlap detection.

@@ -205,7 +205,12 @@ pub fn cli_spec() -> CommandSpec {
                             option_value("project", "Project ID", "id", &[]),
                             columns_option(),
                         ],
-                        vec![],
+                        vec![positional(
+                            "filter",
+                            "Interactive description or task-name filter",
+                            false,
+                            &[],
+                        )],
                         vec![],
                     ),
                     command(

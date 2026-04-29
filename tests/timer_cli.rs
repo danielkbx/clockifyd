@@ -577,3 +577,30 @@ fn timer_resume_rejects_multiple_numeric_selectors_and_field_overrides() {
 
     assert!(server.requests().is_empty());
 }
+
+#[test]
+fn timer_resume_rejects_interactive_options_with_direct_selectors() {
+    let server = TestServer::spawn(vec![]);
+
+    let filter = bin()
+        .args(["timer", "resume", "-1", "needle", "-y"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+    assert!(!filter.status.success());
+    assert!(stderr(&filter).contains("filters are only supported for interactive timer resume"));
+
+    let limit = bin()
+        .args(["timer", "resume", "-1", "-n2", "-y"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+    assert!(!limit.status.success());
+    assert!(stderr(&limit).contains("-n<count> is only supported for interactive timer resume"));
+
+    assert!(server.requests().is_empty());
+}

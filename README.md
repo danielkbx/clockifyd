@@ -342,12 +342,13 @@ cfd entry text list --columns text,lastUsed
 cfd timer current
 cfd timer start [description] [--start <time>] [--project <project-id>] [--task <task-id>] [--tag <tag-id>] [--no-rounding]
 cfd timer stop [--end <time>] [--no-rounding] [-y]
+cfd timer resume [filter] [-n<count>] [--start <time>] [--no-rounding] [-y]
 cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <time>] [--no-rounding] [-y]
 ```
 
 `timer start` accepts the description as one optional positional argument. Use quotes for descriptions with spaces. `timer stop` uses the current time unless you pass an explicit `--end`.
 
-`timer resume` starts a new timer from a recent time entry. Without a numeric selector it shows the 10 most recent entries and prompts for a selection. Use `-1` for the newest entry, `-2` for the second newest, through `-9`. Direct resume shows the selected entry and asks `Resume this entry? [Y/n]:`; pressing Enter confirms, and `-y` skips the prompt. The new timer copies project, task, tags, and description, but uses a fresh start time.
+`timer resume` starts a new timer from a recent time entry. Without a numeric selector it shows the 10 most recent entries and prompts for a selection. Use `-n20` to change the interactive list size, or pass quoted filter text such as `cfd timer resume "review"` to show only entries whose description or task name contains that text. Use `-1` for the newest entry, `-2` for the second newest, through `-9`; direct selectors do not accept filters or `-n<count>`. Direct resume shows the selected entry and asks `Resume this entry? [Y/n]:`; pressing Enter confirms, and `-y` skips the prompt. The new timer copies project, task, tags, and description, but uses a fresh start time.
 
 ### Aliases
 
