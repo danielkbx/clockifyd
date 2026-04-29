@@ -415,6 +415,7 @@ fn timer_resume_direct_newest_copies_entry_fields() {
     assert!(output.status.success());
     assert_eq!(stdout(&output), "resumed\n");
     assert!(stderr(&output).contains("Selected entry:"));
+    assert!(stderr(&output).contains("2026-04-23"));
     assert!(stderr(&output).contains("[CFD-TEST] resume newest"));
     assert!(!stderr(&output).contains("Resume this entry?"));
 

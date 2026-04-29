@@ -1,6 +1,6 @@
 # clockifyd - Clockify CLI
 
-`cfd` is the released Clockify CLI for this repository. Current package version: `1.6.1`.
+`cfd` is the released Clockify CLI for this repository. Current package version: `1.6.2`.
 
 The public README is user documentation. This file and `.agents/*.md` are maintainer and agent context.
 

@@ -100,6 +100,7 @@ Verify `timer resume` for human terminal workflows:
 - Pressing Enter at the direct confirmation prompt starts the timer.
 - `-y` skips the direct confirmation prompt.
 - Interactive `timer resume` lists recent entries and Enter selects index `0`.
+- Resume candidate rows display the local start date and time for every entry, including today.
 - `timer resume -nX` changes only the interactive list size.
 - `timer resume "text"` filters only the interactive list.
 - Filters match description case-insensitively.

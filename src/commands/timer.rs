@@ -417,16 +417,7 @@ fn format_resume_start(start: &str) -> Result<String, CfdError> {
     let dt = chrono::DateTime::parse_from_rfc3339(start)
         .map_err(|_| CfdError::message("invalid entry start"))?
         .with_timezone(&chrono::Local);
-    let today = chrono::Local::now().date_naive();
-    let date = dt.date_naive();
-
-    if date == today {
-        Ok(dt.format("%H:%M").to_string())
-    } else if date == today - chrono::Days::new(1) {
-        Ok(dt.format("yesterday %H:%M").to_string())
-    } else {
-        Ok(dt.format("%Y-%m-%d %H:%M").to_string())
-    }
+    Ok(dt.format("%Y-%m-%d %H:%M").to_string())
 }
 
 fn stop_timer<T: HttpTransport>(
@@ -781,6 +772,29 @@ mod tests {
         assert!(rendered.contains("Project One"));
         assert!(rendered.contains("Task One"));
         assert!(!rendered.contains(" t1 "));
+    }
+
+    #[test]
+    fn format_resume_start_includes_date_for_today_and_yesterday() {
+        let today = chrono::Local::now()
+            .date_naive()
+            .and_hms_opt(15, 45, 0)
+            .unwrap()
+            .and_local_timezone(chrono::Local)
+            .single()
+            .unwrap();
+        let yesterday = today - chrono::Days::new(1);
+
+        assert_eq!(
+            format_resume_start(&today.to_rfc3339()).unwrap(),
+            today.format("%Y-%m-%d %H:%M").to_string()
+        );
+        let rendered_yesterday = format_resume_start(&yesterday.to_rfc3339()).unwrap();
+        assert_eq!(
+            rendered_yesterday,
+            yesterday.format("%Y-%m-%d %H:%M").to_string()
+        );
+        assert!(!rendered_yesterday.contains("yesterday"));
     }
 
     impl MockTransport {
