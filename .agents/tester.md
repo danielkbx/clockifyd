@@ -67,6 +67,8 @@ Specific coverage:
 22. `entry list` sorts by start time ascending by default, supports `--sort asc|desc`, and applies the selected order consistently to default text, `--columns`, JSON, and raw output
 23. `alias create|list|delete` manage local aliases, and `cfd <alias> start` starts a timer with stored project/task/description
 24. `timer resume` lists recent entries interactively, supports `-1` through `-9`, copies project/task/tags/description, and keeps `-y` semantics for direct-selection and overlap prompts
+25. `entry update` can update only `--end`, only `--duration`, or only metadata; omitted project/task/tags are preserved from the existing entry
+26. `entry update --duration <d>` without `--start` calculates the new end from the existing start, and help text documents that behavior
 
 ## Rust-specific Notes
 

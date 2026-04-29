@@ -373,7 +373,7 @@ fn entry_help() -> String {
   cfd entry get <id> [--format json] [--no-meta] [--columns <list>]
   cfd entry text list [--project <id>] [--format json] [--no-meta] [--columns <list>]
   cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
-  cfd entry update <id> --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
+  cfd entry update <id> [--start <iso>] [--end <iso> | --duration <d>] [fields...] [--no-rounding]
   cfd entry delete <id> [-y]
 
 Date keywords `today` and `yesterday` are resolved in the local process timezone.
@@ -393,6 +393,13 @@ Fields:
   --tag <id>          Tag ID; may be repeated
   --description <text>
                       Entry description
+
+Update behavior:
+  For updates, omitted fields keep their existing values.
+  If --start is omitted, the existing start time is used.
+  If --duration is used without --start, the new end time is calculated from the existing start time.
+  If --duration is used with --start, the new end time is calculated from the new start time.
+  If neither --end nor --duration is provided, the existing end time is used.
 
 Available columns:
   id           Entry ID
@@ -420,7 +427,9 @@ Sorting:
 Examples:
   cfd entry list --start today --end today --columns start,end,description --sort asc
   cfd entry add --start 2026-04-27T09:00:00Z --duration 1h --project <id>
-  cfd entry update <id> --start 2026-04-27T09:00:00Z --end 2026-04-27T10:00:00Z"
+  cfd entry update <id> --end 2026-04-27T10:00:00Z
+  cfd entry update <id> --duration 2h
+  cfd entry update <id> --description \"Updated description\""
         .into()
 }
 
@@ -555,8 +564,9 @@ mod tests {
         assert!(help.contains("cfd entry list"));
         assert!(help.contains("cfd entry get <id> [--format json] [--no-meta] [--columns <list>]"));
         assert!(help.contains(
-            "cfd entry update <id> --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]"
+            "cfd entry update <id> [--start <iso>] [--end <iso> | --duration <d>] [fields...] [--no-rounding]"
         ));
+        assert!(help.contains("If --duration is used without --start, the new end time is calculated from the existing start time."));
         assert!(help.contains("today|yesterday"));
         assert!(help.contains("--sort asc|desc"));
         assert!(help.contains("default asc"));

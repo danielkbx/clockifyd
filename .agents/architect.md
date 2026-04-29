@@ -91,8 +91,8 @@ Interactive login may store the selected default workspace directly in config, b
 
 For mutating time commands:
 
-1. Parse user input into timestamps
-2. Apply rounding unless `--no-rounding` is present
+1. Parse user input into timestamps, merging omitted `entry update` fields from the existing entry
+2. Apply rounding to explicit or calculated timestamps unless `--no-rounding` is present
 3. Validate resulting interval
 4. Check overlaps
 5. Ask for confirmation if overlaps exist and `-y` is not set
@@ -127,6 +127,8 @@ Rules:
 - `entry update` excludes the updated entry itself from the check
 - overlaps are warnings, not hard errors
 - `-y` skips only the confirmation prompt
+
+`entry update` loads the existing entry before building the Clockify `PUT` payload. Omitted fields keep their existing values. `--duration` without `--start` calculates the new end from the existing start; `--duration` with `--start` calculates the new end from the new start.
 
 `timer resume` copies project, task, tags, and description from a selected recent entry, then enters the same start pipeline as `timer start`. Direct selectors `-1` through `-9` are parser special cases only for `timer resume`.
 

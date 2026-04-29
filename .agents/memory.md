@@ -4,9 +4,9 @@ Store only non-obvious product/API decisions that are not already clear from cod
 
 ---
 
-## Clockify API: Time entry update requires start
+## Clockify API: Time entry update payload requires start
 Date: 2026-04-23
-The documented update payload for `PUT /v1/workspaces/{workspaceId}/time-entries/{id}` includes required `start`. Build update logic accordingly.
+The documented update payload for `PUT /v1/workspaces/{workspaceId}/time-entries/{id}` includes required `start`. CLI `entry update` may omit `--start`; in that case build the API payload from the existing entry start.
 
 ## Clockify API: Pagination naming is endpoint-specific
 Date: 2026-04-23

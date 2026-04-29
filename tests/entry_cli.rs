@@ -479,10 +479,13 @@ fn entry_update_excludes_its_own_id_from_overlap_check() {
     let server = TestServer::spawn(vec![
         MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
         MockResponse::ok(
-            r#"[{"id":"e1","workspaceId":"w1","userId":"u1","description":"Focus","timeInterval":{"start":"2026-04-23T09:00:00Z","end":"2026-04-23T10:00:00Z","duration":"PT1H"}}]"#,
+            r#"{"id":"e1","workspaceId":"w1","userId":"u1","projectId":"p1","taskId":"t1","tagIds":["tag1"],"description":"Focus","timeInterval":{"start":"2026-04-23T09:00:00Z","end":"2026-04-23T10:00:00Z","duration":"PT1H"}}"#,
         ),
         MockResponse::ok(
-            r#"{"id":"e1","workspaceId":"w1","userId":"u1","description":"Focus updated","timeInterval":{"start":"2026-04-23T09:15:00Z","end":"2026-04-23T10:15:00Z","duration":"PT1H"}}"#,
+            r#"[{"id":"e1","workspaceId":"w1","userId":"u1","projectId":"p1","taskId":"t1","tagIds":["tag1"],"description":"Focus","timeInterval":{"start":"2026-04-23T09:00:00Z","end":"2026-04-23T10:00:00Z","duration":"PT1H"}}]"#,
+        ),
+        MockResponse::ok(
+            r#"{"id":"e1","workspaceId":"w1","userId":"u1","projectId":"p1","taskId":"t1","tagIds":["tag1"],"description":"Focus updated","timeInterval":{"start":"2026-04-23T09:15:00Z","end":"2026-04-23T10:15:00Z","duration":"PT1H"}}"#,
         ),
     ]);
 
@@ -510,9 +513,113 @@ fn entry_update_excludes_its_own_id_from_overlap_check() {
     assert!(!stderr(&output).contains("Continue despite overlap?"));
 
     let requests = server.requests();
+    assert_eq!(requests[1].path, "/api/v1/workspaces/w1/time-entries/e1");
     assert_eq!(
-        requests[1].path,
+        requests[2].path,
         "/api/v1/workspaces/w1/user/u1/time-entries"
     );
-    assert_eq!(requests[2].path, "/api/v1/workspaces/w1/time-entries/e1");
+    assert_eq!(requests[3].path, "/api/v1/workspaces/w1/time-entries/e1");
+    assert_eq!(
+        requests[3].body,
+        "{\"description\":\"Focus updated\",\"end\":\"2026-04-23T10:15:00+00:00\",\"projectId\":\"p1\",\"start\":\"2026-04-23T09:15:00+00:00\",\"tagIds\":[\"tag1\"],\"taskId\":\"t1\"}"
+    );
+}
+
+#[test]
+fn entry_update_end_only_uses_existing_start_and_preserves_fields() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok(
+            r#"{"id":"e1","workspaceId":"w1","userId":"u1","projectId":"p1","taskId":"t1","tagIds":["tag1"],"description":"Focus","timeInterval":{"start":"2026-04-23T09:00:00Z","end":"2026-04-23T10:00:00Z","duration":"PT1H"}}"#,
+        ),
+        MockResponse::ok("[]"),
+        MockResponse::ok(
+            r#"{"id":"e1","workspaceId":"w1","userId":"u1","projectId":"p1","taskId":"t1","tagIds":["tag1"],"description":"Focus","timeInterval":{"start":"2026-04-23T09:00:00Z","end":"2026-04-23T10:30:00Z","duration":"PT1H30M"}}"#,
+        ),
+    ]);
+
+    let output = bin()
+        .args(["entry", "update", "e1", "--end", "2026-04-23T10:30:00Z"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), "e1\n");
+
+    let requests = server.requests();
+    assert_eq!(requests[1].path, "/api/v1/workspaces/w1/time-entries/e1");
+    assert_eq!(
+        requests[2].path,
+        "/api/v1/workspaces/w1/user/u1/time-entries"
+    );
+    assert_eq!(requests[3].path, "/api/v1/workspaces/w1/time-entries/e1");
+    assert_eq!(
+        requests[3].body,
+        "{\"description\":\"Focus\",\"end\":\"2026-04-23T10:30:00+00:00\",\"projectId\":\"p1\",\"start\":\"2026-04-23T09:00:00Z\",\"tagIds\":[\"tag1\"],\"taskId\":\"t1\"}"
+    );
+}
+
+#[test]
+fn entry_update_duration_only_uses_existing_start() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok(
+            r#"{"id":"e1","workspaceId":"w1","userId":"u1","projectId":"p1","description":"Focus","timeInterval":{"start":"2026-04-23T09:00:00Z","end":"2026-04-23T10:00:00Z","duration":"PT1H"}}"#,
+        ),
+        MockResponse::ok("[]"),
+        MockResponse::ok(
+            r#"{"id":"e1","workspaceId":"w1","userId":"u1","projectId":"p1","description":"Focus","timeInterval":{"start":"2026-04-23T09:00:00Z","end":"2026-04-23T11:00:00Z","duration":"PT2H"}}"#,
+        ),
+    ]);
+
+    let output = bin()
+        .args(["entry", "update", "e1", "--duration", "2h"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), "e1\n");
+
+    let requests = server.requests();
+    assert_eq!(
+        requests[3].body,
+        "{\"description\":\"Focus\",\"end\":\"2026-04-23T11:00:00+00:00\",\"projectId\":\"p1\",\"start\":\"2026-04-23T09:00:00Z\"}"
+    );
+}
+
+#[test]
+fn entry_update_description_only_preserves_time_and_metadata() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok(
+            r#"{"id":"e1","workspaceId":"w1","userId":"u1","projectId":"p1","taskId":"t1","tagIds":["tag1"],"description":"Focus","timeInterval":{"start":"2026-04-23T09:00:00Z","end":"2026-04-23T10:00:00Z","duration":"PT1H"}}"#,
+        ),
+        MockResponse::ok("[]"),
+        MockResponse::ok(
+            r#"{"id":"e1","workspaceId":"w1","userId":"u1","projectId":"p1","taskId":"t1","tagIds":["tag1"],"description":"Focus updated","timeInterval":{"start":"2026-04-23T09:00:00Z","end":"2026-04-23T10:00:00Z","duration":"PT1H"}}"#,
+        ),
+    ]);
+
+    let output = bin()
+        .args(["entry", "update", "e1", "--description", "Focus updated"])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), "e1\n");
+
+    let requests = server.requests();
+    assert_eq!(
+        requests[3].body,
+        "{\"description\":\"Focus updated\",\"end\":\"2026-04-23T10:00:00Z\",\"projectId\":\"p1\",\"start\":\"2026-04-23T09:00:00Z\",\"tagIds\":[\"tag1\"],\"taskId\":\"t1\"}"
+    );
 }

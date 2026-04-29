@@ -140,7 +140,7 @@ fn add_entry<T: HttpTransport>(
     config_state: &StoredConfig,
 ) -> Result<(), CfdError> {
     let user = client.get_current_user()?;
-    let payload = build_time_entry_payload(args, false, config_state)?;
+    let payload = build_time_entry_payload(args, config_state)?;
     let warning = find_overlaps_for_payload(
         client,
         workspace_id,
@@ -163,11 +163,17 @@ fn update_entry<T: HttpTransport>(
 ) -> Result<(), CfdError> {
     let entry_id = args.positional.first().ok_or_else(|| {
         CfdError::message(
-            "usage: cfd entry update <id> --start <iso> (--end <iso> | --duration <d>)",
+            "usage: cfd entry update <id> [--start <iso>] [--end <iso> | --duration <d>] [fields...]",
         )
     })?;
+    if !has_update_flags(args) {
+        return Err(CfdError::message(
+            "usage: cfd entry update <id> [--start <iso>] [--end <iso> | --duration <d>] [fields...]",
+        ));
+    }
     let user = client.get_current_user()?;
-    let payload = build_time_entry_payload(args, true, config_state)?;
+    let existing = client.get_time_entry(workspace_id, entry_id)?;
+    let payload = build_time_entry_update_payload(args, config_state, &existing)?;
     let warning = find_overlaps_for_payload(
         client,
         workspace_id,
@@ -230,15 +236,9 @@ fn list_entry_texts<T: HttpTransport>(
 
 fn build_time_entry_payload(
     args: &ParsedArgs,
-    require_start: bool,
     config_state: &StoredConfig,
 ) -> Result<serde_json::Value, CfdError> {
     let start = args.flags.get("start").map(String::as_str);
-    if require_start && start.is_none() {
-        return Err(CfdError::message(
-            "usage: cfd entry update <id> --start <iso> (--end <iso> | --duration <d>)",
-        ));
-    }
     let start = start.ok_or_else(|| {
         CfdError::message("usage: cfd entry add --start <iso> (--end <iso> | --duration <d>)")
     })?;
@@ -284,6 +284,106 @@ fn build_time_entry_payload(
         "end": end_dt.to_rfc3339(),
     });
 
+    apply_explicit_entry_fields(args, &mut payload);
+
+    Ok(payload)
+}
+
+fn build_time_entry_update_payload(
+    args: &ParsedArgs,
+    config_state: &StoredConfig,
+    existing: &TimeEntry,
+) -> Result<serde_json::Value, CfdError> {
+    if !has_update_flags(args) {
+        return Err(CfdError::message(
+            "usage: cfd entry update <id> [--start <iso>] [--end <iso> | --duration <d>] [fields...]",
+        ));
+    }
+
+    let end = args.flags.get("end").map(String::as_str);
+    let duration_value = args.flags.get("duration").map(String::as_str);
+    if end.is_some() && duration_value.is_some() {
+        return Err(CfdError::message(
+            "use at most one of --end <iso> or --duration <d>",
+        ));
+    }
+
+    let rounding = config::resolve_rounding(args.no_rounding, config_state)?;
+    let start = match args.flags.get("start").map(String::as_str) {
+        Some(start) => datetime::round_timestamp(start, rounding)?,
+        None => existing.time_interval.start.clone(),
+    };
+    let start_dt = chrono::DateTime::parse_from_rfc3339(&start)
+        .map_err(|_| CfdError::message(format!("invalid start: {start}")))?;
+
+    let end = match (end, duration_value) {
+        (Some(end), None) => datetime::round_timestamp(end, rounding)?,
+        (None, Some(duration)) => {
+            let parsed = duration::parse_duration(duration)?;
+            let calculated_end = (start_dt + parsed).to_rfc3339();
+            datetime::round_timestamp(&calculated_end, rounding)?
+        }
+        (None, None) => existing.time_interval.end.clone().ok_or_else(|| {
+            CfdError::message(
+                "entry update requires an end time for running entries; use --end <iso> or --duration <d>",
+            )
+        })?,
+        (Some(_), Some(_)) => unreachable!(),
+    };
+    let end_dt = chrono::DateTime::parse_from_rfc3339(&end)
+        .map_err(|_| CfdError::message(format!("invalid end: {end}")))?;
+
+    if end_dt <= start_dt {
+        return Err(CfdError::message(
+            "end must be after start; if this came from rounding, retry with --no-rounding",
+        ));
+    }
+
+    let mut payload = serde_json::json!({
+        "start": start,
+        "end": end,
+    });
+    apply_existing_entry_fields(existing, &mut payload);
+    apply_explicit_entry_fields(args, &mut payload);
+
+    Ok(payload)
+}
+
+fn has_update_flags(args: &ParsedArgs) -> bool {
+    [
+        "start",
+        "end",
+        "duration",
+        "project",
+        "task",
+        "tag",
+        "description",
+    ]
+    .iter()
+    .any(|flag| args.flags.contains_key(*flag))
+}
+
+fn apply_existing_entry_fields(entry: &TimeEntry, payload: &mut serde_json::Value) {
+    payload["description"] = serde_json::Value::String(entry.description.clone());
+    if let Some(project_id) = &entry.project_id {
+        payload["projectId"] = serde_json::Value::String(project_id.clone());
+    }
+    if let Some(task_id) = &entry.task_id {
+        payload["taskId"] = serde_json::Value::String(task_id.clone());
+    }
+    if !entry.tag_ids.is_empty() {
+        payload["tagIds"] = serde_json::Value::Array(
+            entry
+                .tag_ids
+                .iter()
+                .cloned()
+                .map(serde_json::Value::String)
+                .collect(),
+        );
+    }
+}
+
+fn apply_explicit_entry_fields(args: &ParsedArgs, payload: &mut serde_json::Value) {
     if let Some(description) = args.flags.get("description") {
         payload["description"] = serde_json::Value::String(description.clone());
     }
@@ -293,8 +393,10 @@ fn build_time_entry_payload(
     if let Some(task_id) = args.flags.get("task") {
         payload["taskId"] = serde_json::Value::String(task_id.clone());
     }
-
-    Ok(payload)
+    if let Some(tag_id) = args.flags.get("tag") {
+        payload["tagIds"] =
+            serde_json::Value::Array(vec![serde_json::Value::String(tag_id.clone())]);
+    }
 }
 
 fn find_overlaps_for_payload<T: HttpTransport>(
@@ -834,6 +936,8 @@ mod tests {
             self.last_method.replace(Some("GET".into()));
             if url.ends_with("/user") {
                 Ok(self.user_response.clone())
+            } else if url.contains("/time-entries/e1") {
+                Ok(self.write_response.clone())
             } else {
                 Ok(self.list_response.clone())
             }
@@ -873,6 +977,23 @@ mod tests {
             time_interval: TimeInterval {
                 start: start.into(),
                 end: None,
+                duration: None,
+            },
+        }
+    }
+
+    fn closed_existing_entry() -> TimeEntry {
+        TimeEntry {
+            id: "e1".into(),
+            workspace_id: "w1".into(),
+            user_id: Some("u1".into()),
+            project_id: Some("p1".into()),
+            task_id: Some("t1".into()),
+            tag_ids: vec!["tag1".into()],
+            description: "Focus".into(),
+            time_interval: TimeInterval {
+                start: "2026-04-23T09:00:00Z".into(),
+                end: Some("2026-04-23T10:00:00Z".into()),
                 duration: None,
             },
         }
@@ -1257,12 +1378,138 @@ mod tests {
             no_rounding: false,
         };
 
-        let payload = build_time_entry_payload(&args, false, &StoredConfig::default()).unwrap();
+        let payload = build_time_entry_payload(&args, &StoredConfig::default()).unwrap();
 
         assert_eq!(payload["start"], "2026-04-23T09:00:00+00:00");
         assert_eq!(payload["end"], "2026-04-23T10:30:00+00:00");
         assert_eq!(payload["description"], "Focus");
         assert_eq!(payload["projectId"], "p1");
+    }
+
+    #[test]
+    fn update_payload_preserves_existing_entry_fields() {
+        let args = ParsedArgs {
+            resource: Some("entry".into()),
+            action: Some("update".into()),
+            subaction: None,
+            positional: vec!["e1".into()],
+            flags: std::collections::HashMap::from([
+                ("start".into(), "2026-04-23T09:15:00Z".into()),
+                ("end".into(), "2026-04-23T10:15:00Z".into()),
+            ]),
+            output: OutputOptions::default(),
+            workspace: None,
+            yes: false,
+            no_rounding: false,
+        };
+        let existing = closed_existing_entry();
+        let payload =
+            build_time_entry_update_payload(&args, &StoredConfig::default(), &existing).unwrap();
+
+        assert_eq!(payload["start"], "2026-04-23T09:15:00+00:00");
+        assert_eq!(payload["end"], "2026-04-23T10:15:00+00:00");
+        assert_eq!(payload["description"], "Focus");
+        assert_eq!(payload["projectId"], "p1");
+        assert_eq!(payload["taskId"], "t1");
+        assert_eq!(payload["tagIds"][0], "tag1");
+    }
+
+    #[test]
+    fn update_payload_uses_existing_start_when_start_is_omitted() {
+        let args = ParsedArgs {
+            resource: Some("entry".into()),
+            action: Some("update".into()),
+            subaction: None,
+            positional: vec!["e1".into()],
+            flags: std::collections::HashMap::from([("end".into(), "2026-04-23T10:30:00Z".into())]),
+            output: OutputOptions::default(),
+            workspace: None,
+            yes: false,
+            no_rounding: false,
+        };
+        let existing = closed_existing_entry();
+
+        let payload =
+            build_time_entry_update_payload(&args, &StoredConfig::default(), &existing).unwrap();
+
+        assert_eq!(payload["start"], "2026-04-23T09:00:00Z");
+        assert_eq!(payload["end"], "2026-04-23T10:30:00+00:00");
+    }
+
+    #[test]
+    fn update_payload_supports_duration_without_start() {
+        let args = ParsedArgs {
+            resource: Some("entry".into()),
+            action: Some("update".into()),
+            subaction: None,
+            positional: vec!["e1".into()],
+            flags: std::collections::HashMap::from([("duration".into(), "2h".into())]),
+            output: OutputOptions::default(),
+            workspace: None,
+            yes: false,
+            no_rounding: false,
+        };
+        let existing = closed_existing_entry();
+
+        let payload =
+            build_time_entry_update_payload(&args, &StoredConfig::default(), &existing).unwrap();
+
+        assert_eq!(payload["start"], "2026-04-23T09:00:00Z");
+        assert_eq!(payload["end"], "2026-04-23T11:00:00+00:00");
+    }
+
+    #[test]
+    fn update_payload_supports_duration_with_new_start() {
+        let args = ParsedArgs {
+            resource: Some("entry".into()),
+            action: Some("update".into()),
+            subaction: None,
+            positional: vec!["e1".into()],
+            flags: std::collections::HashMap::from([
+                ("start".into(), "2026-04-23T10:00:00Z".into()),
+                ("duration".into(), "2h".into()),
+            ]),
+            output: OutputOptions::default(),
+            workspace: None,
+            yes: false,
+            no_rounding: false,
+        };
+        let existing = closed_existing_entry();
+
+        let payload =
+            build_time_entry_update_payload(&args, &StoredConfig::default(), &existing).unwrap();
+
+        assert_eq!(payload["start"], "2026-04-23T10:00:00+00:00");
+        assert_eq!(payload["end"], "2026-04-23T12:00:00+00:00");
+    }
+
+    #[test]
+    fn update_payload_allows_metadata_only_update() {
+        let args = ParsedArgs {
+            resource: Some("entry".into()),
+            action: Some("update".into()),
+            subaction: None,
+            positional: vec!["e1".into()],
+            flags: std::collections::HashMap::from([(
+                "description".into(),
+                "Focus updated".into(),
+            )]),
+            output: OutputOptions::default(),
+            workspace: None,
+            yes: false,
+            no_rounding: false,
+        };
+        let existing = closed_existing_entry();
+
+        let payload =
+            build_time_entry_update_payload(&args, &StoredConfig::default(), &existing).unwrap();
+
+        assert_eq!(payload["start"], "2026-04-23T09:00:00Z");
+        assert_eq!(payload["end"], "2026-04-23T10:00:00Z");
+        assert_eq!(payload["description"], "Focus updated");
+        assert_eq!(payload["projectId"], "p1");
+        assert_eq!(payload["taskId"], "t1");
+        assert_eq!(payload["tagIds"][0], "tag1");
     }
 
     #[test]
@@ -1283,7 +1530,7 @@ mod tests {
             no_rounding: false,
         };
 
-        let error = build_time_entry_payload(&args, false, &StoredConfig::default())
+        let error = build_time_entry_payload(&args, &StoredConfig::default())
             .unwrap_err()
             .to_string();
 
@@ -1291,24 +1538,72 @@ mod tests {
     }
 
     #[test]
-    fn update_requires_start() {
+    fn update_payload_rejects_noop_update() {
         let args = ParsedArgs {
             resource: Some("entry".into()),
             action: Some("update".into()),
             subaction: None,
             positional: vec!["e1".into()],
-            flags: std::collections::HashMap::from([("end".into(), "2026-04-23T10:00:00Z".into())]),
+            flags: Default::default(),
             output: OutputOptions::default(),
             workspace: None,
             yes: false,
             no_rounding: false,
         };
+        let existing = closed_existing_entry();
 
-        let error = build_time_entry_payload(&args, true, &StoredConfig::default())
+        let error = build_time_entry_update_payload(&args, &StoredConfig::default(), &existing)
             .unwrap_err()
             .to_string();
 
-        assert!(error.contains("entry update <id> --start"));
+        assert!(error.contains("entry update <id>"));
+    }
+
+    #[test]
+    fn update_payload_rejects_end_before_existing_start() {
+        let args = ParsedArgs {
+            resource: Some("entry".into()),
+            action: Some("update".into()),
+            subaction: None,
+            positional: vec!["e1".into()],
+            flags: std::collections::HashMap::from([("end".into(), "2026-04-23T08:00:00Z".into())]),
+            output: OutputOptions::default(),
+            workspace: None,
+            yes: false,
+            no_rounding: false,
+        };
+        let existing = closed_existing_entry();
+
+        let error = build_time_entry_update_payload(&args, &StoredConfig::default(), &existing)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("end must be after start"));
+    }
+
+    #[test]
+    fn update_payload_rejects_metadata_only_update_for_running_entry() {
+        let args = ParsedArgs {
+            resource: Some("entry".into()),
+            action: Some("update".into()),
+            subaction: None,
+            positional: vec!["e1".into()],
+            flags: std::collections::HashMap::from([(
+                "description".into(),
+                "Focus updated".into(),
+            )]),
+            output: OutputOptions::default(),
+            workspace: None,
+            yes: false,
+            no_rounding: false,
+        };
+        let existing = entry("e1", "Focus", "2026-04-23T09:00:00Z");
+
+        let error = build_time_entry_update_payload(&args, &StoredConfig::default(), &existing)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("requires an end time for running entries"));
     }
 
     #[test]

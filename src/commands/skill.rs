@@ -325,7 +325,15 @@ fn push_core_commands(
     ));
     out.push_str(&format!("cfd status{workspace_flag} --format json\n"));
     out.push_str(&format!("cfd entry add{workspace_flag} --start <iso> --duration <duration> --project {project_id} --description \"<work>\"\n"));
-    out.push_str(&format!("cfd entry update{workspace_flag} <entry-id> --start <iso> --duration <duration> --description \"<work>\"\n"));
+    out.push_str(&format!(
+        "cfd entry update{workspace_flag} <entry-id> --end <iso>\n"
+    ));
+    out.push_str(&format!(
+        "cfd entry update{workspace_flag} <entry-id> --duration <duration>\n"
+    ));
+    out.push_str(&format!(
+        "cfd entry update{workspace_flag} <entry-id> --description \"<work>\"\n"
+    ));
     out.push_str(&format!(
         "cfd timer current{workspace_flag} --format json\n"
     ));
@@ -660,6 +668,11 @@ mod tests {
         ));
         assert!(text.contains("`--sort asc|desc`"));
         assert!(text.contains("cfd entry add --workspace w1 --start <iso> --duration <duration> --project p1 --description \"<work>\""));
+        assert!(text.contains("cfd entry update --workspace w1 <entry-id> --end <iso>"));
+        assert!(text.contains("cfd entry update --workspace w1 <entry-id> --duration <duration>"));
+        assert!(
+            text.contains("cfd entry update --workspace w1 <entry-id> --description \"<work>\"")
+        );
         assert!(text
             .contains("cfd entry text list --workspace w1 --project p1 --columns text,lastUsed"));
         assert!(text

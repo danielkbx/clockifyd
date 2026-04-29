@@ -260,7 +260,7 @@ Tasks are created explicitly. `task create` prints only the created task ID on s
 cfd entry list --start <iso|today|yesterday> --end <iso|today|yesterday> [--project <id>] [--task <id>] [--tag <id>...] [--text <value>] [--columns <list>] [--sort asc|desc]
 cfd entry get <id> [--columns <list>]
 cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
-cfd entry update <id> --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
+cfd entry update <id> [--start <iso>] [--end <iso> | --duration <d>] [fields...] [--no-rounding]
 cfd entry delete <id> [-y]
 
 cfd today [--sort asc|desc]
@@ -275,6 +275,8 @@ Entry fields:
 --tag <id>
 --description <text>
 ```
+
+For `entry update`, omitted fields keep their existing values. If `--start` is omitted, the existing start time is used. If `--duration` is used without `--start`, the new end time is calculated from the existing start time. If `--duration` is used with `--start`, the new end time is calculated from the new start time.
 
 `today` and `yesterday` use the local process timezone. `entry list` sorts by start time ascending by default; pass `--sort desc` to show newest entries first. Create and update commands print only the entry ID. Delete prompts unless `-y` is passed.
 
@@ -451,7 +453,9 @@ cfd entry add --start 2026-04-26T09:00:00Z --duration 1h30m --project <project-i
 ### Update An Entry
 
 ```bash
-cfd entry update <entry-id> --start 2026-04-26T09:00:00Z --duration 2h --description "ABC-1: Implement feature"
+cfd entry update <entry-id> --end 2026-04-26T11:00:00Z
+cfd entry update <entry-id> --duration 2h
+cfd entry update <entry-id> --description "ABC-1: Implement feature"
 ```
 
 ### List Today's Entries

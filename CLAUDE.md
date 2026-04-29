@@ -1,6 +1,6 @@
 # clockifyd - Clockify CLI
 
-`cfd` is the released Clockify CLI for this repository. Current package version: `1.5.0`.
+`cfd` is the released Clockify CLI for this repository. Current package version: `1.6.0`.
 
 The public README is user documentation. This file and `.agents/*.md` are maintainer and agent context.
 
@@ -93,7 +93,7 @@ cfd entry list --start <iso|today|yesterday> --end <iso|today|yesterday> [--proj
 cfd entry get <id> [--columns <list>]
 cfd entry text list [--project <id>] [--columns <list>]
 cfd entry add --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
-cfd entry update <id> --start <iso> (--end <iso> | --duration <d>) [fields...] [--no-rounding]
+cfd entry update <id> [--start <iso>] [--end <iso> | --duration <d>] [fields...] [--no-rounding]
 cfd entry delete <id> [-y]
 
 cfd today [--sort asc|desc]
@@ -189,6 +189,7 @@ Credential and settings resolution order:
 - `login` prompts for the Clockify API key, validates credentials by loading workspaces, and can store default workspace/project/rounding.
 - `config interactive` reuses the existing API key from env or config and updates workspace/project/rounding.
 - Mutating time commands apply configured rounding unless `--no-rounding` is present.
+- `entry update` may omit fields; omitted values are loaded from the existing entry before sending Clockify `PUT`. `--duration` without `--start` calculates the new end from the existing start.
 - `timer resume` copies project/task/tags/description from a recent entry, uses a fresh start time, and supports `-1` through `-9` for direct recent-entry selection.
 - Overlap warnings apply to `entry add`, `entry update`, `timer start`, `timer stop`, and `timer resume`.
 - Overlap is warning plus confirmation, not a hard error.
