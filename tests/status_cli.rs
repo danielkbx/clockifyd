@@ -2,6 +2,7 @@ mod support;
 
 use chrono::{Datelike, Days, Local, LocalResult, TimeZone, Utc, Weekday};
 use serde_json::Value;
+use std::fs;
 use support::{bin, stderr, stdout, MockResponse, TestServer};
 
 #[test]
@@ -32,7 +33,7 @@ fn status_renders_timer_today_week_and_totals() {
 
     assert!(output.status.success(), "{}", stderr(&output));
     let text = stdout(&output);
-    assert!(text.contains("Timer:\n  running: yes"));
+    assert!(text.starts_with("Timer:\n  +"));
     assert!(text.contains("| Project One | t1   | Planning"));
     assert!(text.contains("Today:"));
     assert!(text.contains("| Project     | Task | Description | Duration |"));
@@ -77,7 +78,7 @@ fn status_without_timer_or_entries_renders_empty_totals() {
     assert!(output.status.success(), "{}", stderr(&output));
     assert_eq!(
         stdout(&output),
-        "Timer:\n  running: no\n\nToday:\n  +---------+------+-------------+----------+\n  | Project | Task | Description | Duration |\n  +---------+------+-------------+----------+\n  +---------+------+-------------+----------+\n  | Total   |      |             | 0s       |\n  +---------+------+-------------+----------+\n\nWeek:\n  +---------+------+-------------+----------+\n  | Project | Task | Description | Duration |\n  +---------+------+-------------+----------+\n  +---------+------+-------------+----------+\n  | Total   |      |             | 0s       |\n  +---------+------+-------------+----------+\n\n"
+        "Timer:\n\nToday:\n  +---------+------+-------------+----------+\n  | Project | Task | Description | Duration |\n  +---------+------+-------------+----------+\n  +---------+------+-------------+----------+\n  | Total   |      |             | 0s       |\n  +---------+------+-------------+----------+\n\nWeek:\n  +---------+------+-------------+----------+\n  | Project | Task | Description | Duration |\n  +---------+------+-------------+----------+\n  +---------+------+-------------+----------+\n  | Total   |      |             | 0s       |\n  +---------+------+-------------+----------+\n\n"
     );
     assert_eq!(server.requests().len(), 4);
 }
@@ -103,7 +104,7 @@ fn status_ignores_running_timers_for_other_users() {
 
     assert!(output.status.success(), "{}", stderr(&output));
     let text = stdout(&output);
-    assert!(text.contains("Timer:\n  running: no"));
+    assert!(text.starts_with("Timer:\n\nToday:"));
     assert!(!text.contains("Someone else"));
     assert_eq!(server.requests().len(), 4);
 }
@@ -210,6 +211,126 @@ fn status_json_returns_structured_summary() {
     assert_eq!(json["today"]["total"], "1h30m");
     assert_eq!(json["week"]["weekStart"], "monday");
     assert!(json.get("timeInterval").is_none());
+}
+
+#[test]
+fn status_json_includes_switch_return_target_when_active() {
+    let (_dir, config_path) = support::temp_config_path();
+    fs::write(
+        &config_path,
+        r#"{
+  "activeSwitch": {
+    "workspaceId": "w1",
+    "userId": "u1",
+    "originalEntryId": "a1",
+    "switchedEntryId": "b1",
+    "switchedStart": "2026-05-06T10:15:00Z",
+    "returnStart": "2026-05-06T09:00:00Z",
+    "returnTo": {
+      "projectId": "p1",
+      "taskId": "t1",
+      "tagIds": ["tag1"],
+      "description": "Timer A"
+    }
+  }
+}
+"#,
+    )
+    .unwrap();
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok(
+            r#"[{"id":"b1","workspaceId":"w1","userId":"u1","projectId":"p2","description":"Timer B","timeInterval":{"start":"2026-05-06T10:15:00Z"}}]"#,
+        ),
+        MockResponse::ok("[]"),
+        MockResponse::ok("[]"),
+        MockResponse::ok(
+            r#"[{"id":"p1","name":"Main project","workspaceId":"w1"},{"id":"p2","name":"Support","workspaceId":"w1"}]"#,
+        ),
+    ]);
+
+    let output = bin()
+        .args(["status", "--format", "json"])
+        .env("CFD_CONFIG", &config_path)
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let json: Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert_eq!(json["timer"]["entry"]["id"], "b1");
+    assert_eq!(json["timer"]["returnsTo"]["originalEntryId"], "a1");
+    assert_eq!(
+        json["timer"]["returnsTo"]["switchedAt"],
+        "2026-05-06T10:15:00Z"
+    );
+    assert_eq!(json["timer"]["returnsTo"]["start"], "2026-05-06T09:00:00Z");
+    assert_eq!(json["timer"]["returnsTo"]["durationSeconds"], 4500);
+    assert_eq!(json["timer"]["returnsTo"]["duration"], "1h15m");
+    assert_eq!(json["timer"]["returnsTo"]["projectId"], "p1");
+    assert_eq!(json["timer"]["returnsTo"]["projectName"], "Main project");
+    assert_eq!(json["timer"]["returnsTo"]["taskId"], "t1");
+    assert_eq!(
+        json["timer"]["returnsTo"]["tagIds"],
+        serde_json::json!(["tag1"])
+    );
+    assert_eq!(json["timer"]["returnsTo"]["description"], "Timer A");
+}
+
+#[test]
+fn status_text_renders_switch_return_target_without_duration_column() {
+    let (_dir, config_path) = support::temp_config_path();
+    fs::write(
+        &config_path,
+        r#"{
+  "activeSwitch": {
+    "workspaceId": "w1",
+    "userId": "u1",
+    "originalEntryId": "a1",
+    "switchedEntryId": "b1",
+    "switchedStart": "2026-05-06T10:15:00Z",
+    "returnStart": "2026-05-06T09:00:00Z",
+    "returnTo": {
+      "projectId": "p1",
+      "description": "Timer A"
+    }
+  }
+}
+"#,
+    )
+    .unwrap();
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok(
+            r#"[{"id":"b1","workspaceId":"w1","userId":"u1","projectId":"p2","description":"Timer B","timeInterval":{"start":"2026-05-06T10:15:00Z"}}]"#,
+        ),
+        MockResponse::ok("[]"),
+        MockResponse::ok("[]"),
+        MockResponse::ok(
+            r#"[{"id":"p1","name":"Main project","workspaceId":"w1"},{"id":"p2","name":"Support","workspaceId":"w1"}]"#,
+        ),
+    ]);
+
+    let output = bin()
+        .args(["status"])
+        .env("CFD_CONFIG", &config_path)
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.contains("Returns to:\n"));
+    let returns_to = text.split("Returns to:\n").nth(1).unwrap();
+    assert!(returns_to.contains("Duration"));
+    assert!(returns_to.contains("| Main project | none | Timer A"));
+    assert!(returns_to.contains("1h15m"));
+    assert!(!text.contains("returnsToTarget"));
+    assert!(!text.contains("| Main project | none | Timer A     | 2026-05-06T10:15:00Z"));
 }
 
 #[test]

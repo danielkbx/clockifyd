@@ -8,7 +8,7 @@ use crate::client::{ClockifyClient, HttpTransport};
 use crate::datetime::{self, WeekStart};
 use crate::error::CfdError;
 use crate::format::{format_json, OutputFormat};
-use crate::types::{EntryFilters, TimeEntry};
+use crate::types::{EntryFilters, StoredConfig, StoredSwitch, TimeEntry};
 
 const USAGE: &str = "usage: cfd status [--week-start monday|sunday]";
 const SUMMARY_HEADERS: [&str; 4] = ["Project", "Task", "Description", "Duration"];
@@ -17,6 +17,7 @@ pub fn execute<T: HttpTransport>(
     client: &ClockifyClient<T>,
     args: &ParsedArgs,
     workspace_id: &str,
+    config_state: &StoredConfig,
 ) -> Result<(), CfdError> {
     if args.flags.contains_key("columns") {
         return Err(CfdError::message("cfd status does not support --columns"));
@@ -31,6 +32,9 @@ pub fn execute<T: HttpTransport>(
     let now = Utc::now();
 
     let user = client.get_current_user()?;
+    let active_switch = config_state.active_switch.as_ref().filter(|active_switch| {
+        active_switch.workspace_id == workspace_id && active_switch.user_id == user.id
+    });
     let timers = client
         .get_current_timers(workspace_id)?
         .into_iter()
@@ -54,11 +58,18 @@ pub fn execute<T: HttpTransport>(
             ..EntryFilters::default()
         },
     )?;
-    let project_names =
-        load_project_names(client, workspace_id, &timers, &today_entries, &week_entries)?;
+    let project_names = load_project_names(
+        client,
+        workspace_id,
+        &timers,
+        &today_entries,
+        &week_entries,
+        active_switch,
+    )?;
 
     let report = build_status_report(
         timers.first(),
+        active_switch,
         &today_entries,
         &week_entries,
         &project_names,
@@ -94,13 +105,17 @@ fn load_project_names<T: HttpTransport>(
     timers: &[TimeEntry],
     today_entries: &[TimeEntry],
     week_entries: &[TimeEntry],
+    active_switch: Option<&StoredSwitch>,
 ) -> Result<BTreeMap<String, String>, CfdError> {
-    let project_ids = timers
+    let mut project_ids = timers
         .iter()
         .chain(today_entries)
         .chain(week_entries)
         .filter_map(|entry| entry.project_id.as_deref())
         .collect::<BTreeSet<_>>();
+    if let Some(active_switch) = active_switch {
+        project_ids.insert(active_switch.return_to.project_id.as_str());
+    }
     if project_ids.is_empty() {
         return Ok(BTreeMap::new());
     }
@@ -135,6 +150,8 @@ struct StatusReport {
 struct TimerStatus {
     running: bool,
     entry: Option<TimerEntryStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    returns_to: Option<TimerReturnStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -151,6 +168,28 @@ struct TimerEntryStatus {
     start: String,
     duration_seconds: i64,
     duration: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TimerReturnStatus {
+    original_entry_id: String,
+    switched_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start: Option<String>,
+    project_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    task_id: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tag_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration_seconds: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -200,6 +239,7 @@ struct GroupKey {
 
 fn build_status_report(
     timer: Option<&TimeEntry>,
+    active_switch: Option<&StoredSwitch>,
     today_entries: &[TimeEntry],
     week_entries: &[TimeEntry],
     project_names: &BTreeMap<String, String>,
@@ -211,6 +251,9 @@ fn build_status_report(
             running: timer.is_some(),
             entry: timer
                 .map(|entry| timer_entry_status(entry, project_names, now))
+                .transpose()?,
+            returns_to: active_switch
+                .map(|active_switch| timer_return_status(active_switch, project_names))
                 .transpose()?,
         },
         today: summary_status(
@@ -231,6 +274,40 @@ fn build_status_report(
                 now,
             )?)),
         },
+    })
+}
+
+fn timer_return_status(
+    active_switch: &StoredSwitch,
+    project_names: &BTreeMap<String, String>,
+) -> Result<TimerReturnStatus, CfdError> {
+    let duration = active_switch
+        .return_start
+        .as_deref()
+        .map(|start| {
+            let start = DateTime::parse_from_rfc3339(start)
+                .map_err(|_| CfdError::message("invalid switch return start"))?;
+            let switched_at = DateTime::parse_from_rfc3339(&active_switch.switched_start)
+                .map_err(|_| CfdError::message("invalid switch start"))?;
+            Ok::<chrono::Duration, CfdError>((switched_at - start).max(chrono::Duration::zero()))
+        })
+        .transpose()?;
+    let duration_seconds = duration.map(|duration| duration.num_seconds());
+    let duration = duration.map(format_duration);
+
+    Ok(TimerReturnStatus {
+        original_entry_id: active_switch.original_entry_id.clone(),
+        switched_at: active_switch.switched_start.clone(),
+        start: active_switch.return_start.clone(),
+        project_id: active_switch.return_to.project_id.clone(),
+        project_name: project_names
+            .get(&active_switch.return_to.project_id)
+            .cloned(),
+        task_id: active_switch.return_to.task_id.clone(),
+        tag_ids: active_switch.return_to.tag_ids.clone(),
+        description: active_switch.return_to.description.clone(),
+        duration_seconds,
+        duration,
     })
 }
 
@@ -378,11 +455,6 @@ fn format_duration(duration: chrono::Duration) -> String {
 fn render_status_text(report: &StatusReport) -> String {
     let mut out = String::new();
     out.push_str("Timer:\n");
-    out.push_str(if report.timer.running {
-        "  running: yes\n"
-    } else {
-        "  running: no\n"
-    });
     let timer_rows = timer_summary_rows(report.timer.entry.as_ref());
     let today_rows = summary_rows(&report.today.groups);
     let week_rows = summary_rows(&report.week.groups);
@@ -396,12 +468,29 @@ fn render_status_text(report: &StatusReport) -> String {
     if report.timer.running {
         push_table_text(&mut out, &timer_rows, None, &widths);
     }
+    if let Some(returns_to) = &report.timer.returns_to {
+        out.push_str("  Returns to:\n");
+        let return_rows = return_summary_rows(returns_to);
+        push_table_text(&mut out, &return_rows, None, &widths);
+    }
 
     out.push('\n');
     push_summary_text(&mut out, "Today", &today_rows, &report.today.total, &widths);
     out.push('\n');
     push_summary_text(&mut out, "Week", &week_rows, &report.week.total, &widths);
     out
+}
+
+fn return_summary_rows(returns_to: &TimerReturnStatus) -> Vec<SummaryRow> {
+    vec![SummaryRow {
+        project: display_project(
+            returns_to.project_name.as_deref(),
+            Some(returns_to.project_id.as_str()),
+        ),
+        task: display_optional(returns_to.task_id.as_deref()).to_owned(),
+        description: display_optional(returns_to.description.as_deref()).to_owned(),
+        duration: returns_to.duration.clone().unwrap_or_default(),
+    }]
 }
 
 fn timer_summary_rows(entry: Option<&TimerEntryStatus>) -> Vec<SummaryRow> {

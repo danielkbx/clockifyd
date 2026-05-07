@@ -206,6 +206,12 @@ fn project_skill_resolves_workspace_and_project_and_includes_context() {
     assert!(text.contains("cfd entry update --workspace w1 <entry-id> --duration <duration>"));
     assert!(text.contains("cfd entry update --workspace w1 <entry-id> --description \"<work>\""));
     assert!(
+        text.contains("cfd split entry --workspace w1 <entry-id> --at <time> [--gap <duration>]")
+    );
+    assert!(text.contains("cfd split timer --workspace w1 --at <time> [--gap <duration>]"));
+    assert!(text.contains("split_end = round(resolve(--at))"));
+    assert!(text.contains("User journeys must always be added or updated"));
+    assert!(
         text.contains("cfd entry text list --workspace w1 --project p1 --columns text,lastUsed")
     );
     assert!(

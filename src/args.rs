@@ -14,6 +14,8 @@ pub(crate) const VALUE_FLAGS: &[&str] = &[
     "task",
     "tag",
     "duration",
+    "at",
+    "gap",
     "description",
     "name",
     "scope",
@@ -67,7 +69,7 @@ pub fn parse_args(argv: &[String]) -> ParsedArgs {
     let subaction = positional.get(2).cloned().filter(|_| {
         matches!(
             (resource.as_deref(), action.as_deref()),
-            (Some("entry"), Some("text"))
+            (Some("entry"), Some("text")) | (Some("timer"), Some("switch"))
         )
     });
     let consumed = 1 + usize::from(action.is_some()) + usize::from(subaction.is_some());
@@ -95,7 +97,7 @@ pub(crate) fn takes_value(flag: &str) -> bool {
 }
 
 fn should_consume_value(flag: &str, next: &str) -> bool {
-    !next.starts_with('-') || (matches!(flag, "start" | "end") && !next.starts_with("--"))
+    !next.starts_with('-') || (matches!(flag, "start" | "end" | "at") && !next.starts_with("--"))
 }
 
 fn resume_selector_flag(arg: &str) -> Option<char> {
@@ -148,6 +150,17 @@ mod tests {
         assert_eq!(parsed.action.as_deref(), Some("text"));
         assert_eq!(parsed.subaction.as_deref(), Some("list"));
         assert_eq!(parsed.flags.get("project").map(String::as_str), Some("p1"));
+    }
+
+    #[test]
+    fn parses_timer_switch_resume_branch() {
+        let parsed = args(&["timer", "switch", "resume", "-1", "--start", "now"]);
+
+        assert_eq!(parsed.resource.as_deref(), Some("timer"));
+        assert_eq!(parsed.action.as_deref(), Some("switch"));
+        assert_eq!(parsed.subaction.as_deref(), Some("resume"));
+        assert_eq!(parsed.flags.get("1").map(String::as_str), Some("true"));
+        assert_eq!(parsed.flags.get("start").map(String::as_str), Some("now"));
     }
 
     #[test]
@@ -218,6 +231,16 @@ mod tests {
 
         assert_eq!(parsed.flags.get("start").map(String::as_str), Some("-15m"));
         assert_eq!(parsed.flags.get("end").map(String::as_str), Some("now"));
+    }
+
+    #[test]
+    fn parses_negative_relative_split_at_value() {
+        let parsed = args(&["split", "timer", "--at", "-15m", "--gap", "5m"]);
+
+        assert_eq!(parsed.resource.as_deref(), Some("split"));
+        assert_eq!(parsed.action.as_deref(), Some("timer"));
+        assert_eq!(parsed.flags.get("at").map(String::as_str), Some("-15m"));
+        assert_eq!(parsed.flags.get("gap").map(String::as_str), Some("5m"));
     }
 
     #[test]

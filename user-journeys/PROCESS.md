@@ -38,6 +38,28 @@ The agent:
 
 Skill-generation journeys are read-only and should not create Clockify resources. They are semantic reviews, not golden text tests: verify workspace inclusion, update instructions, time tracking trigger clarity, and scope-appropriate detail rather than exact wording.
 
+### 2.1 Harness Rules
+
+When automating journeys with a shell harness:
+
+- Use a temporary copy of the selected config file:
+  `CFD_CONFIG=$(mktemp /tmp/cfd-journey-config.XXXXXX.json)` followed by `cp <selected-config> "$CFD_CONFIG"`.
+  This protects aliases, defaults, and `activeSwitch` state in the original config.
+- Do not delete the temporary config in pre-run cleanup. Only remove it in the final exit trap.
+- Capture created entry IDs from either compact ID output or expanded text output. Some commands, notably `timer stop`, can print expanded entry details when warnings such as overlap warnings are present. Prefer the first `id: <value>` line, falling back to a bare ID line:
+  `awk '/^id: / {print $2; exit} /^[[:alnum:]]{20,}$/ {print; exit}'`.
+- Quote fixed-string checks that begin with `-` by passing `--` to `rg`, for example:
+  `rg -q --fixed-strings -- "-now"`.
+- Use `[CFD-TEST]` in every temporary time-entry description, including switch journey Timer A/B descriptions. This makes cleanup reliable.
+- Cleanup must search the full time window used by the harness, not only `today`, if any journey creates future-dated entries. Delete all `[CFD-TEST]` entries in that window before declaring cleanup complete.
+- For `timer resume` direct selector checks, isolate ordering. Seed entries must be newer than unrelated workspace entries, and resumed copies created during the journey must not become candidates for later selector checks unless the journey explicitly expects that. Delete or time-position resumed copies so `-2` still refers to the intended second seed entry.
+- For `timer switch resume`, ensure the intended resume target is newer than Timer A's closed switch-boundary entry. Otherwise `-1` may correctly select Timer A's just-closed entry instead of the intended seed entry.
+- After all journeys, verify:
+  - `cfd timer current --workspace <id>` reports no running timer
+  - `cfd entry list --start <harness-window-start> --end <harness-window-end> --text "[CFD-TEST]" --format json` is empty
+  - any non-prefixed temporary descriptions used by older journeys, such as `CFD journey`, are also absent
+  - the temporary config has no aliases and no `activeSwitch`
+
 ### 3. Naming Convention
 
 All test entities should use this prefix when possible:
@@ -79,3 +101,8 @@ Examples:
 11. `11-workspace-agent-skill-generation.md`
 12. `12-today-summary.md`
 13. `13-timer-aliases.md`
+14. `14-timer-resume.md`
+15. `15-status-overview.md`
+16. `16-relative-datetime.md`
+17. `17-temporary-switch.md`
+18. `18-split.md`

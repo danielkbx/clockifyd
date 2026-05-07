@@ -33,6 +33,8 @@ src/
     entry.rs        <- time-entry list/get/add/update/delete
     today.rs        <- daily time-entry summary table
     status.rs       <- timer state plus grouped today/week summaries
+    split.rs        <- split finished entries or running timers
+    switch.rs       <- temporary timer switch state display
     timer.rs        <- timer current/start/stop/resume
 tests/              <- subprocess CLI coverage
 user-journeys/      <- real-workspace verification flows
@@ -74,7 +76,7 @@ Command names must be validated against the known-command routing in `main.rs` b
 
 The canonical visible command tree also lives in `src/cli_spec.rs` for completion rendering and drift tests. User-visible command changes must keep `main.rs`, `help.rs`, and `cli_spec.rs` in sync.
 
-Dynamic timer aliases are the exception to static command validation: after built-in commands are checked, `main.rs` may load local config to resolve `cfd <alias> start`. Alias management commands remain static as `cfd alias create|list|delete`.
+Dynamic timer aliases are the exception to static command validation: after built-in commands are checked, `main.rs` may load local config to resolve `cfd <alias> start` and `cfd <alias> switch`. Alias management commands remain static as `cfd alias create|list|delete`.
 
 ## Workspace Resolution
 
@@ -118,6 +120,10 @@ Overlap warnings apply only to:
 - `timer start`
 - `timer stop`
 - `timer resume`
+- `split entry`
+- `split timer`
+- `switch start`
+- `switch stop`
 
 Rules:
 
@@ -131,6 +137,10 @@ Rules:
 `entry update` loads the existing entry before building the Clockify `PUT` payload. Omitted fields keep their existing values. `--duration` without `--start` calculates the new end from the existing start; `--duration` with `--start` calculates the new end from the new start.
 
 `timer resume` copies project, task, tags, and description from a selected recent entry, then enters the same start pipeline as `timer start`. Direct selectors `-1` through `-9` are parser special cases only for `timer resume`.
+
+`timer switch resume` uses the same recent-entry selection as `timer resume`, then enters the switch start pipeline with the selected entry fields.
+
+`split entry` divides a finished entry by updating the original end and creating a copied second entry. `split timer` stops the current timer and creates a copied running timer. Gap handling is exact: first resolve and round `--at`, then add `--gap`, then round the calculated new start. In formula form: `split_end = round(resolve(--at))`, `new_start_unrounded = split_end + gap`, `new_start = round(new_start_unrounded)`.
 
 ## Clockify API Mapping
 
@@ -157,9 +167,13 @@ Clockify API endpoints used by `cfd`:
 - `GET /v1/workspaces/{workspaceId}/time-entries/status/in-progress`
 - `PATCH /v1/workspaces/{workspaceId}/user/{userId}/time-entries`
 
+`cfd split` composes existing time-entry APIs: entry split uses `GET`, `PUT`, and `POST`; timer split uses current timer `GET`, `PATCH` stop, and `POST` start.
+
 `cfd today` uses the existing current-user time-entry list endpoint with today's local start/end boundaries and loads projects for display names.
 
 `cfd status` uses the current timer endpoint, current-user time-entry list endpoint for today/week ranges, and projects for display names. It groups summaries by project ID, task ID, and description. Week ranges default to Monday-to-Monday local boundaries and may use Sunday-to-Sunday with `--week-start sunday`.
+
+`cfd switch current` reads local `activeSwitch` config. When active, JSON includes `current` for the running temporary timer and `returnsTo` for the stored timer fields that will be resumed. Text output renders matching `current:` and `returnsTo:` sections.
 
 `entry list` and `today` are Entry timeline outputs. They sort by `timeInterval.start` ascending by default, so the newest entry appears last. Both accept `--sort asc|desc`; the selected order applies to text, columns, JSON, and raw output.
 
@@ -171,6 +185,7 @@ Clockify API endpoints used by `cfd`:
 - stored workspace
 - stored project
 - stored rounding
+- active temporary switch state
 - XDG config path handling
 - save with mode `600`
 - clear config

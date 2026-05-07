@@ -231,6 +231,7 @@ cfd alias create <alias> [--project <project-id>] [--task <task-id|none>] [--des
 cfd alias list
 cfd alias delete <alias> [-y]
 cfd <alias> start
+cfd <alias> switch
 ```
 
 `cfd config interactive` updates stored workspace, project, and rounding defaults without asking for the API key again. Defaults reduce repeated `--workspace` and `--project` flags.
@@ -265,6 +266,13 @@ cfd entry delete <id> [-y]
 
 cfd today [--sort asc|desc]
 cfd status [--week-start monday|sunday]
+
+cfd split entry <id> --at <time> [--gap <duration>] [--no-rounding] [-y]
+cfd split timer --at <time> [--gap <duration>] [--no-rounding] [-y]
+
+cfd switch current
+cfd switch start [description] [--start <time>] [--project <project-id>] [--task <task-id>] [--tag <tag-id>] [--no-rounding] [-y]
+cfd switch stop [--end <time>] [--no-rounding] [-y]
 ```
 
 Entry fields:
@@ -318,11 +326,50 @@ cfd status --week-start sunday
 cfd status --format json
 ```
 
-`cfd status` shows the current timer state, a today summary, and a current-week summary. When a timer is running, the timer details render as an ASCII table. Today and week summaries also render as ASCII tables, group entries by `project + task + description`, resolve project names for display, show task IDs, and include total duration rows. The Timer, Today, and Week tables share column widths. Missing task or description values display as `none`.
+`cfd status` shows the current timer state, a today summary, and a current-week summary. When a timer is running, the timer details render as an ASCII table. If a temporary switch is active, the Timer section also shows the timer that will be resumed. Today and week summaries also render as ASCII tables, group entries by `project + task + description`, resolve project names for display, show task IDs, and include total duration rows. The Timer, Today, and Week tables share column widths. Missing task or description values display as `none`.
 
 The week starts on Monday by default. Use `--week-start sunday` for a Sunday-to-Sunday week. Boundaries resolve in the local process timezone. Running entries count toward timer, today, and week totals.
 
-`--format json` and `--format raw` return a structured status object with timer state, grouped summaries, `durationSeconds`, and compact duration strings. `--columns` is not supported by `status`.
+`--format json` and `--format raw` return a structured status object with timer state, optional `returnsTo` switch target, grouped summaries, `durationSeconds`, and compact duration strings. `--columns` is not supported by `status`.
+
+### Split Entries And Timers
+
+```bash
+cfd split entry <entry-id> --at <time>
+cfd split entry <entry-id> --at <time> --gap 15m
+cfd split timer --at <time>
+cfd split timer --at <time> --gap 5m --no-rounding
+```
+
+`split` divides one existing time record into two records. `split entry` works on a finished entry with both start and end times. It updates the original entry to end at the split time, then creates a new finished entry from the calculated new start to the original old end. `split timer` works on the current running timer. It stops the current timer at the split time, then starts a new running timer at the calculated new start.
+
+Both forms copy project, task, tags, and description from the original record. Text output contains full `updated:` and `created:` blocks. `--format json` and `--format raw` return an object with full `updated` and `created` time-entry resources.
+
+`--at <time>` accepts the same timestamp forms as timer and entry mutation commands: ISO timestamps, `now`, bare relative offsets such as `-15m` or `+30m`, and explicit `now` offsets such as `now-2h` or `now+1h30m`.
+
+`--gap <duration>` is optional and defaults to zero. It accepts the same duration syntax as `--duration`, for example `5m`, `1h`, `1h30m`, or bare minutes such as `15`. The gap is the desired distance between the updated entry/timer end and the new entry/timer start.
+
+The gap and rounding order is exact:
+
+```text
+split_end = round(resolve(--at))
+new_start_unrounded = split_end + gap
+new_start = round(new_start_unrounded)
+```
+
+That means `--gap` is always added to the already rounded split/end timestamp. If rounding is enabled, the calculated new start is rounded again afterward. `--no-rounding` disables both rounding steps, so the split end is the resolved `--at` value and the new start is exactly `--at + gap`.
+
+Example with configured `15m` rounding:
+
+```bash
+cfd split entry <entry-id> --at 2026-04-23T10:07:00Z --gap 5m
+```
+
+With nearest-step rounding, `10:07` rounds to `10:00`. The `5m` gap is added to that rounded `10:00`, giving `10:05`. The calculated new start is then rounded again, so with `15m` rounding it becomes `10:00`. If you need the visible five-minute gap exactly, use `--no-rounding` or choose timestamps that remain distinct after rounding.
+
+Overlap detection runs after rounding for both resulting intervals. If either interval overlaps another current-user entry, `cfd` warns once and asks for confirmation. Use `-y` to skip the prompt; overlap detection still runs.
+
+If `split timer` is used while the running timer is an active temporary switch timer, the local switch state follows the newly created running timer. `switch current`, `switch stop`, and `status` continue to refer to the active switch.
 
 ### Entry Text Reuse
 
@@ -344,11 +391,32 @@ cfd timer start [description] [--start <time>] [--project <project-id>] [--task 
 cfd timer stop [--end <time>] [--no-rounding] [-y]
 cfd timer resume [filter] [-n<count>] [--start <time>] [--no-rounding] [-y]
 cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <time>] [--no-rounding] [-y]
+cfd timer switch resume [filter] [-n<count>] [--start <time>] [--no-rounding] [-y]
+cfd timer switch resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <time>] [--no-rounding] [-y]
 ```
 
 `timer start` accepts the description as one optional positional argument. Use quotes for descriptions with spaces. `timer stop` uses the current time unless you pass an explicit `--end`.
+If a temporary switch is active, `timer stop` behaves like `switch stop` and returns to the original timer.
 
 `timer resume` starts a new timer from a recent time entry. Without a numeric selector it shows the 10 most recent entries and prompts for a selection. Use `-n20` to change the interactive list size, or pass quoted filter text such as `cfd timer resume "review"` to show only entries whose description or task name contains that text. Use `-1` for the newest entry, `-2` for the second newest, through `-9`; direct selectors do not accept filters or `-n<count>`. Direct resume shows the selected entry and asks `Resume this entry? [Y/n]:`; pressing Enter confirms, and `-y` skips the prompt. The new timer copies project, task, tags, and description, but uses a fresh start time.
+
+`timer switch resume` uses the same recent-entry selection as `timer resume`, including interactive filtering and `-1` through `-9`, then temporarily switches to the selected entry instead of starting it as a normal timer.
+
+### Temporary Switches
+
+```bash
+cfd switch current
+cfd switch current --format json
+cfd switch start [description] [--start <time>] [--project <project-id>] [--task <task-id>] [--tag <tag-id>] [--no-rounding] [-y]
+cfd switch stop [--end <time>] [--no-rounding] [-y]
+cfd <alias> switch
+```
+
+`switch` temporarily moves from the current running timer to another timer, then returns to the original timer. `switch start` stops Timer A and starts Timer B at the same rounded timestamp. `switch stop` stops Timer B and starts a new Timer A at the same rounded timestamp. This keeps the entries contiguous with no gaps.
+
+`switch current` shows both sides of an active switch. In JSON output, `current` describes the currently running temporary timer, and `returnsTo` describes the timer data that will be resumed.
+
+Configured rounding applies unless `--no-rounding` is present. If Timer B is too short after rounding, Timer B is discarded and Timer A resumes from the original switch time. Nested switches are not supported.
 
 ### Aliases
 
@@ -359,6 +427,7 @@ cfd alias create <alias> [--project <project-id>] [--task <task-id|none>] [--des
 cfd alias list
 cfd alias delete <alias> [-y]
 cfd <alias> start
+cfd <alias> switch
 ```
 
 `alias create` runs interactively in a terminal when values are missing. Defaults are displayed by label, for example `Select Project [Project One]:`. Use `--task none` or `--description none` to clear those optional fields when updating an alias.
@@ -366,6 +435,7 @@ cfd <alias> start
 ```bash
 cfd alias create standup --project <project-id> --description "Daily standup"
 cfd standup start
+cfd standup switch
 ```
 
 ### Agent Skills
@@ -530,7 +600,7 @@ cfd entry add --start <time> --duration 20m --no-rounding
 cfd timer stop --no-rounding
 ```
 
-Rounding applies to `entry add`, `entry update`, `timer start`, `timer stop`, and `timer resume`. Relative times are resolved before rounding is applied.
+Rounding applies to `entry add`, `entry update`, `timer start`, `timer stop`, `timer resume`, `switch start`, `switch stop`, and `split`. Relative times are resolved before rounding is applied. For `split`, `--gap` is added after the split/end timestamp is rounded, and the calculated new start is rounded again.
 
 When a mutating command would create overlapping entries for the current user, `cfd` warns on stderr and asks for confirmation. Use `-y` to continue without the prompt. If rounding causes `end <= start`, retry with `--no-rounding`.
 
@@ -545,7 +615,7 @@ Use the `id` values printed by `cfd` as input to later commands.
 | Client | Clockify client ID returned by `client list` |
 | Tag | Clockify tag ID returned by `tag list` |
 | Task | Clockify task ID plus project ID |
-| Entry | Clockify time entry ID returned by `entry list`, `entry get`, `entry add`, `timer start`, `timer stop`, or `timer resume` |
+| Entry | Clockify time entry ID returned by `entry list`, `entry get`, `entry add`, `timer start`, `timer stop`, `timer resume`, or `split` |
 
 `task get` requires both project ID and task ID.
 

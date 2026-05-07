@@ -165,7 +165,7 @@ fn push_frontmatter(
         }
         None => {
             out.push_str("description: >-\n");
-            out.push_str("  Use this skill when working with Clockify time tracking through the cfd CLI: tracking work time, starting or stopping timers, creating, updating, deleting, listing, or inspecting Clockify time entries, and browsing Clockify workspaces, projects, clients, tasks, and tags. Use for Clockify time tracking records, not generic issue tracker work logs, unless the user explicitly wants Clockify/cfd time entries.\n");
+            out.push_str("  Use this skill when working with Clockify time tracking through the cfd CLI: tracking work time, starting or stopping timers, temporarily switching timers, creating, updating, deleting, listing, or inspecting Clockify time entries, and browsing Clockify workspaces, projects, clients, tasks, and tags. Use for Clockify time tracking records, not generic issue tracker work logs, unless the user explicitly wants Clockify/cfd time entries.\n");
         }
     }
     out.push_str("---\n\n");
@@ -335,13 +335,27 @@ fn push_core_commands(
         "cfd entry update{workspace_flag} <entry-id> --description \"<work>\"\n"
     ));
     out.push_str(&format!(
+        "cfd split entry{workspace_flag} <entry-id> --at <time> [--gap <duration>]\n"
+    ));
+    out.push_str(&format!(
+        "cfd split timer{workspace_flag} --at <time> [--gap <duration>]\n"
+    ));
+    out.push_str(&format!(
         "cfd timer current{workspace_flag} --format json\n"
+    ));
+    out.push_str(&format!(
+        "cfd switch current{workspace_flag} --format json\n"
     ));
     out.push_str(&format!(
         "cfd timer start \"<work>\"{workspace_flag} --project {project_id}\n"
     ));
+    out.push_str(&format!(
+        "cfd switch start \"<temporary work>\"{workspace_flag} --project {project_id}\n"
+    ));
+    out.push_str(&format!("cfd switch stop{workspace_flag}\n"));
     out.push_str(&format!("cfd timer stop{workspace_flag}\n"));
     out.push_str(&format!("cfd timer resume -1{workspace_flag} -y\n"));
+    out.push_str(&format!("cfd timer switch resume -1{workspace_flag} -y\n"));
     out.push_str("```\n\n");
 }
 
@@ -369,7 +383,11 @@ fn push_ids_and_scope(
     out.push_str("- `task get` requires both project ID and task ID.\n");
     out.push_str("- Entry fields accept `--project`, `--task`, `--tag`, and `--description`.\n");
     out.push_str("- Timer start accepts `--project`, `--task`, and `--tag`; pass the description as one quoted positional argument.\n");
-    out.push_str("- Timer resume copies project, task, tags, and description from a recent entry; `-1` selects the newest entry.\n\n");
+    out.push_str("- Timer resume copies project, task, tags, and description from a recent entry; `-1` selects the newest entry.\n");
+    out.push_str("- Timer switch resume uses the same selection as timer resume, then temporarily switches to the selected entry.\n\n");
+    out.push_str("- Switch start accepts the same timer fields as timer start and temporarily switches away from the current timer.\n");
+    out.push_str("- Switch current returns `current` for the temporary timer and `returnsTo` for the timer that will be resumed.\n");
+    out.push_str("- Alias switch (`cfd <alias> switch`) uses stored alias project/task/description for the temporary timer.\n\n");
 }
 
 fn push_safety(out: &mut String) {
@@ -377,6 +395,7 @@ fn push_safety(out: &mut String) {
     out.push_str("- Read current state before updating or deleting a time entry.\n");
     out.push_str("- Confirm destructive intent with the user before `entry delete`.\n");
     out.push_str("- Use `-y` only when deletion or overlap confirmation is explicitly intended.\n");
+    out.push_str("- When a switch may be active, inspect `cfd switch current --format json` or `cfd status` before manually stopping timers.\n");
     out.push_str("- Never print, log, or expose Clockify API keys or credential files.\n\n");
 }
 
@@ -408,6 +427,9 @@ fn push_examples(
     out.push_str(&format!(
         "cfd timer start \"ABC-1: Implement feature\"{workspace_flag} --project {project_id}\n"
     ));
+    out.push_str(&format!(
+        "cfd switch current{workspace_flag} --format json\n"
+    ));
     out.push_str("```\n\n");
 }
 
@@ -429,13 +451,28 @@ fn push_recipes(
         "- Add a manual entry: `cfd entry add{workspace_flag} --start <time> --duration 30m --project {project_id} --description \"<work>\"`.\n"
     ));
     out.push_str(&format!(
+        "- Split a finished entry: `cfd split entry{workspace_flag} <entry-id> --at <time>` or add a gap with `cfd split entry{workspace_flag} <entry-id> --at <time> --gap 15m`.\n"
+    ));
+    out.push_str(&format!(
         "- Start a timer: `cfd timer start \"<work>\"{workspace_flag} --project {project_id}`.\n"
+    ));
+    out.push_str(&format!(
+        "- Split the running timer: `cfd split timer{workspace_flag} --at <time>` or preserve exact gap math with `cfd split timer{workspace_flag} --at <time> --gap 5m --no-rounding`.\n"
     ));
     out.push_str(&format!(
         "- Stop a timer: `cfd timer stop{workspace_flag}`.\n"
     ));
     out.push_str(&format!(
+        "- Check a temporary switch: `cfd switch current{workspace_flag} --format json`; `current` is the temporary timer and `returnsTo` is the timer that will be resumed.\n"
+    ));
+    out.push_str(&format!(
+        "- Temporarily switch to another project: `cfd switch start \"<temporary work>\"{workspace_flag} --project {project_id}` then return with `cfd switch stop{workspace_flag}`.\n"
+    ));
+    out.push_str(&format!(
         "- Resume the newest prior entry: `cfd timer resume -1{workspace_flag}`.\n"
+    ));
+    out.push_str(&format!(
+        "- Temporarily switch to the newest prior entry: `cfd timer switch resume -1{workspace_flag} -y`.\n"
     ));
     out.push_str(&format!(
         "- Reuse prior descriptions: `cfd entry text list{workspace_flag} --project {project_id} --format json`.\n\n"
@@ -444,7 +481,10 @@ fn push_recipes(
 
 fn push_rounding_and_overlaps(out: &mut String) {
     out.push_str("## Rounding And Overlaps\n\n");
-    out.push_str("- Rounding applies to `entry add`, `entry update`, `timer start`, `timer stop`, and `timer resume` unless `--no-rounding` is present.\n");
+    out.push_str("- Rounding applies to `entry add`, `entry update`, `timer start`, `timer stop`, `timer resume`, `switch start`, `switch stop`, and `split` unless `--no-rounding` is present.\n");
+    out.push_str("- Switch boundaries use the same rounded timestamp on both sides, so there are no gaps between the stopped and started entries.\n");
+    out.push_str("- Split gap handling is exact: `split_end = round(resolve(--at))`, `new_start_unrounded = split_end + gap`, `new_start = round(new_start_unrounded)`.\n");
+    out.push_str("- For `split`, `--gap` is always added to the already rounded split/end timestamp. The calculated new start is rounded again unless `--no-rounding` is present.\n");
     out.push_str("- Active rounding resolves from `CFD_ROUNDING`, stored config, then `off`.\n");
     out.push_str("- Overlap warnings are not hard errors, but they require confirmation unless `-y` is present.\n");
     out.push_str("- `-y` skips the prompt, not overlap detection.\n\n");
@@ -455,6 +495,10 @@ fn push_work_logs_boundary(out: &mut String) {
     out.push_str("- Clockify time entries are independent time tracking records.\n");
     out.push_str("- Issue tracker work logs, comments, or status updates belong in the issue tracker unless the user asks for Clockify time tracking.\n");
     out.push_str("- When the user says “log work,” clarify whether they mean Clockify time tracking or an issue tracker work log if context is ambiguous.\n\n");
+    out.push_str("## Maintainer Workflow Notes\n\n");
+    out.push_str(
+        "- User journeys must always be added or updated for user-visible workflow changes.\n\n",
+    );
 }
 
 fn push_full_reference(out: &mut String) {
@@ -471,7 +515,9 @@ fn push_full_reference(out: &mut String) {
     out.push_str("cfd task list|get|create\n");
     out.push_str("cfd entry list|get|add|update|delete / cfd entry text list\n");
     out.push_str("cfd today / cfd status\n");
+    out.push_str("cfd split entry <id> --at <time> [--gap <duration>] / cfd split timer --at <time> [--gap <duration>]\n");
     out.push_str("cfd timer current|start|stop\n");
+    out.push_str("cfd switch current|start|stop / cfd timer switch resume / cfd <alias> switch\n");
     out.push_str("```\n\n");
     out.push_str("## Detailed Output And Input Rules\n\n");
     out.push_str(
@@ -483,6 +529,8 @@ fn push_full_reference(out: &mut String) {
     out.push_str("- `--columns` emits no header and one tab-separated row per item; it cannot be combined with `--format`.\n");
     out.push_str("- `entry list` and `today` support `--sort asc|desc`; default `asc` puts newest entries last.\n");
     out.push_str("- `status` groups today/week summaries by project, task, and description; use `--week-start monday|sunday` for the week boundary.\n");
+    out.push_str("- `split` text and JSON/raw output return both full `updated` and `created` time entries.\n");
+    out.push_str("- `switch current --format json` returns `current` for the active temporary timer and `returnsTo` for the stored return target.\n");
     out.push_str("- Create/update time-entry commands print only the changed resource ID.\n");
     out.push_str("- `today` and `yesterday` are valid date filters for `entry list` and resolve in the local process timezone.\n\n");
     out.push_str("## Configuration And Defaults\n\n");
@@ -494,6 +542,7 @@ fn push_full_reference(out: &mut String) {
     out.push_str("- `missing Clockify API key` means login/config/env credentials are absent.\n");
     out.push_str("- `missing workspace` means pass `--workspace`, set `CFD_WORKSPACE`, or store a workspace.\n");
     out.push_str("- If an entry mutation rounds to an invalid interval, retry with `--no-rounding` or adjust timestamps.\n");
+    out.push_str("- `switch state is stale` means the stored switched timer does not match the current running timer; inspect `cfd timer current` before manual recovery.\n");
     out.push_str("- If a workspace/project/task/tag ID is unknown, list the parent collection with `--format json` and use returned IDs.\n\n");
 }
 
@@ -674,6 +723,9 @@ mod tests {
             text.contains("cfd entry update --workspace w1 <entry-id> --description \"<work>\"")
         );
         assert!(text
+            .contains("cfd split entry --workspace w1 <entry-id> --at <time> [--gap <duration>]"));
+        assert!(text.contains("cfd split timer --workspace w1 --at <time> [--gap <duration>]"));
+        assert!(text
             .contains("cfd entry text list --workspace w1 --project p1 --columns text,lastUsed"));
         assert!(text
             .contains("cfd timer start \"ABC-1: Implement feature\" --workspace w1 --project p1"));
@@ -691,6 +743,8 @@ mod tests {
         assert!(standard.contains("## Common Recipes"));
         assert!(full.contains("## Command Reference"));
         assert!(full.contains("## Troubleshooting"));
+        assert!(standard.contains("split_end = round(resolve(--at))"));
+        assert!(standard.contains("User journeys must always be added or updated"));
     }
 
     #[test]

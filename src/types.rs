@@ -16,6 +16,8 @@ pub struct StoredConfig {
     pub project: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub aliases: BTreeMap<String, StoredAlias>,
+    #[serde(rename = "activeSwitch", skip_serializing_if = "Option::is_none")]
+    pub active_switch: Option<StoredSwitch>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,6 +25,36 @@ pub struct StoredAlias {
     pub project: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredSwitch {
+    #[serde(rename = "workspaceId")]
+    pub workspace_id: String,
+    #[serde(rename = "userId")]
+    pub user_id: String,
+    #[serde(rename = "originalEntryId")]
+    pub original_entry_id: String,
+    #[serde(rename = "switchedEntryId")]
+    pub switched_entry_id: String,
+    #[serde(rename = "switchedStart")]
+    pub switched_start: String,
+    #[serde(rename = "returnStart", skip_serializing_if = "Option::is_none")]
+    pub return_start: Option<String>,
+    #[serde(rename = "returnTo")]
+    pub return_to: StoredTimerFields,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredTimerFields {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "taskId", skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(rename = "tagIds", default, skip_serializing_if = "Vec::is_empty")]
+    pub tag_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
@@ -193,6 +225,20 @@ mod tests {
                     description: Some("Daily standup".into()),
                 },
             )]),
+            active_switch: Some(StoredSwitch {
+                workspace_id: "ws1".into(),
+                user_id: "u1".into(),
+                original_entry_id: "a1".into(),
+                switched_entry_id: "b1".into(),
+                switched_start: "2026-05-06T10:15:00Z".into(),
+                return_start: Some("2026-05-06T09:00:00Z".into()),
+                return_to: StoredTimerFields {
+                    project_id: "pr1".into(),
+                    task_id: Some("t1".into()),
+                    tag_ids: vec!["tag1".into()],
+                    description: Some("Timer A".into()),
+                },
+            }),
         };
 
         let value = serde_json::to_value(config).unwrap();
@@ -204,6 +250,19 @@ mod tests {
         assert_eq!(value["aliases"]["standup"]["project"], "pr1");
         assert_eq!(value["aliases"]["standup"]["task"], "t1");
         assert_eq!(value["aliases"]["standup"]["description"], "Daily standup");
+        assert_eq!(value["activeSwitch"]["workspaceId"], "ws1");
+        assert_eq!(value["activeSwitch"]["userId"], "u1");
+        assert_eq!(value["activeSwitch"]["originalEntryId"], "a1");
+        assert_eq!(value["activeSwitch"]["switchedEntryId"], "b1");
+        assert_eq!(
+            value["activeSwitch"]["switchedStart"],
+            "2026-05-06T10:15:00Z"
+        );
+        assert_eq!(value["activeSwitch"]["returnStart"], "2026-05-06T09:00:00Z");
+        assert_eq!(value["activeSwitch"]["returnTo"]["projectId"], "pr1");
+        assert_eq!(value["activeSwitch"]["returnTo"]["taskId"], "t1");
+        assert_eq!(value["activeSwitch"]["returnTo"]["tagIds"][0], "tag1");
+        assert_eq!(value["activeSwitch"]["returnTo"]["description"], "Timer A");
     }
 
     #[test]
@@ -219,6 +278,20 @@ mod tests {
                     "task": "t1",
                     "description": "Daily standup"
                 }
+            },
+            "activeSwitch": {
+                "workspaceId": "ws1",
+                "userId": "u1",
+                "originalEntryId": "a1",
+                "switchedEntryId": "b1",
+                "switchedStart": "2026-05-06T10:15:00Z",
+                "returnStart": "2026-05-06T09:00:00Z",
+                "returnTo": {
+                    "projectId": "pr1",
+                    "taskId": "t1",
+                    "tagIds": ["tag1"],
+                    "description": "Timer A"
+                }
             }
         }"#;
 
@@ -232,6 +305,23 @@ mod tests {
         assert_eq!(alias.project, "pr1");
         assert_eq!(alias.task.as_deref(), Some("t1"));
         assert_eq!(alias.description.as_deref(), Some("Daily standup"));
+        let active_switch = config.active_switch.unwrap();
+        assert_eq!(active_switch.workspace_id, "ws1");
+        assert_eq!(active_switch.user_id, "u1");
+        assert_eq!(active_switch.original_entry_id, "a1");
+        assert_eq!(active_switch.switched_entry_id, "b1");
+        assert_eq!(active_switch.switched_start, "2026-05-06T10:15:00Z");
+        assert_eq!(
+            active_switch.return_start.as_deref(),
+            Some("2026-05-06T09:00:00Z")
+        );
+        assert_eq!(active_switch.return_to.project_id, "pr1");
+        assert_eq!(active_switch.return_to.task_id.as_deref(), Some("t1"));
+        assert_eq!(active_switch.return_to.tag_ids, vec!["tag1"]);
+        assert_eq!(
+            active_switch.return_to.description.as_deref(),
+            Some("Timer A")
+        );
     }
 
     #[test]
@@ -246,6 +336,7 @@ mod tests {
         let config: StoredConfig = serde_json::from_str(json).unwrap();
 
         assert!(config.aliases.is_empty());
+        assert!(config.active_switch.is_none());
     }
 
     #[test]

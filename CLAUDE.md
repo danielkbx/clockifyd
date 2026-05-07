@@ -1,6 +1,6 @@
 # clockifyd - Clockify CLI
 
-`cfd` is the released Clockify CLI for this repository. Current package version: `1.6.2`.
+`cfd` is the released Clockify CLI for this repository. Current package version: `1.7.0`.
 
 The public README is user documentation. This file and `.agents/*.md` are maintainer and agent context.
 
@@ -98,6 +98,9 @@ cfd entry delete <id> [-y]
 
 cfd today [--sort asc|desc]
 
+cfd split entry <id> --at <time> [--gap <duration>] [--no-rounding] [-y]
+cfd split timer --at <time> [--gap <duration>] [--no-rounding] [-y]
+
 cfd timer current
 cfd timer start [description] [--start <time>] [--project <id>] [--task <id>] [--tag <id>] [--no-rounding]
 cfd timer stop [--end <time>] [--no-rounding] [-y]
@@ -193,8 +196,9 @@ Credential and settings resolution order:
 - `config interactive` reuses the existing API key from env or config and updates workspace/project/rounding.
 - Mutating time commands apply configured rounding unless `--no-rounding` is present.
 - `entry update` may omit fields; omitted values are loaded from the existing entry before sending Clockify `PUT`. `--duration` without `--start` calculates the new end from the existing start.
+- `split entry` updates the original finished entry end and creates a copied second entry. `split timer` stops the current timer and starts a copied new timer. Gap handling is exact: `split_end = round(resolve(--at))`, `new_start_unrounded = split_end + gap`, `new_start = round(new_start_unrounded)`. `--gap` is always added to the already rounded split/end timestamp.
 - `timer resume` copies project/task/tags/description from a recent entry and uses a fresh start time. Interactive resume supports `-n<count>` to change the displayed candidate count and a quoted text filter matching description or task name. Direct resume supports `-1` through `-9`; direct selectors do not accept filters or `-n<count>`.
-- Overlap warnings apply to `entry add`, `entry update`, `timer start`, `timer stop`, and `timer resume`.
+- Overlap warnings apply to `entry add`, `entry update`, `timer start`, `timer stop`, `timer resume`, `split entry`, and `split timer`.
 - Overlap is warning plus confirmation, not a hard error.
 - `-y` skips confirmation prompts but must not skip overlap detection.
 
@@ -215,6 +219,8 @@ Touch only what the task requires. Match existing style. Clean up only your own 
 ### Goal-Driven Execution
 
 Define success criteria before coding. Write or update tests for behavior changes. Verify the relevant test set before finishing.
+
+User journeys must always be added or updated for user-visible workflow changes.
 
 ## Agent Files
 

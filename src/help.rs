@@ -22,6 +22,8 @@ pub fn render_help(
         (Some("entry"), _, _) => entry_help(),
         (Some("today"), _, _) => today_help(),
         (Some("status"), _, _) => status_help(),
+        (Some("split"), _, _) => split_help(),
+        (Some("switch"), _, _) => switch_help(),
         (Some("timer"), _, _) => timer_help(),
         (Some("completion"), _, _) => completion_help(),
         (Some(other), _, _) => {
@@ -115,6 +117,7 @@ fn global_help() -> String {
             ("entry delete <id>", "Delete time entry"),
             ("today", "Show today's time entries"),
             ("status", "Show timer, today, and week summary"),
+            ("split entry|timer", "Split an entry or running timer"),
         ],
     );
     help_group(
@@ -125,10 +128,18 @@ fn global_help() -> String {
             ("timer start", "Start timer"),
             ("timer stop", "Stop timer"),
             ("timer resume", "Start timer from recent entry"),
+            ("timer switch resume", "Switch to recent entry"),
+            (
+                "switch current",
+                "Show active switch timer and return target",
+            ),
+            ("switch start", "Temporarily switch to another timer"),
+            ("switch stop", "Return to switched-from timer"),
             ("alias create <name>", "Create or update timer alias"),
             ("alias list", "List configured aliases"),
             ("alias delete <name>", "Delete alias"),
             ("<alias> start", "Start timer through alias"),
+            ("<alias> switch", "Temporarily switch through alias"),
         ],
     );
 
@@ -239,9 +250,11 @@ fn alias_help() -> String {
   cfd alias list [--format text|json|raw] [--no-meta]
   cfd alias delete <alias> [-y]
   cfd <alias> start [--start <time>] [--no-rounding] [-y]
+  cfd <alias> switch [--start <time>] [--no-rounding] [-y]
 
 Aliases are local shortcuts for recurring timer starts.
 They bind a project and can optionally bind a task and description.
+Alias switch uses the stored alias fields for the temporary switched timer.
 
 Interactive create:
   When run in a terminal, missing project/task/description values are prompted.
@@ -250,6 +263,7 @@ Interactive create:
 Examples:
   cfd alias create standup --project <project-id> --description \"Daily standup\"
   cfd standup start
+  cfd standup switch
   cfd alias delete standup -y"
         .into()
 }
@@ -492,6 +506,7 @@ Show the current timer state plus today and week summaries.
 
 Text output:
   Timer section shows whether a timer is running.
+  If a switch is active, Timer also shows the return target.
   Today and Week sections group entries by project + task + description.
   Each group shows project, task ID, description, and total duration.
   Missing task or description displays as `none`.
@@ -506,8 +521,63 @@ Options:
 Notes:
   Today and week boundaries resolve in the local process timezone.
   Running entries count toward totals.
+  Active switches expose the timer return target in text and JSON/raw output.
   Project names are resolved for display; task displays the Clockify task ID.
   `--columns` is not supported by this command."
+        .into()
+}
+
+fn split_help() -> String {
+    "Usage:
+  cfd split entry <id> --at <time> [--gap <duration>] [--format text|json|raw] [--no-meta] [--no-rounding] [-y]
+  cfd split timer --at <time> [--gap <duration>] [--format text|json|raw] [--no-meta] [--no-rounding] [-y]
+
+Split a finished entry or the current running timer into two records.
+
+Options:
+  --at <time>         Split time
+  --gap <duration>    Gap between the updated end and the new start; default: 0
+  --no-rounding       Disable configured rounding for both split timestamps
+  -y                  Skip overlap confirmation prompts
+
+Notes:
+  Gap is added after rounding --at, then the calculated new start is rounded too.
+  Entry split preserves project, task, tags, description, and the original end.
+  Timer split stops the current timer and starts a new timer with copied fields.
+  If the current timer is an active switch timer, switch state follows the new timer.
+  Text and JSON/raw output include both `updated` and `created` time entries."
+        .into()
+}
+
+fn switch_help() -> String {
+    "Usage:
+  cfd switch current [--format text|json|raw] [--no-meta]
+  cfd switch start [description] [--start <time>] [fields...] [--no-rounding] [-y]
+  cfd switch stop [--end <time>] [--no-rounding] [-y]
+  cfd <alias> switch [--start <time>] [--no-rounding] [-y]
+
+Temporarily switch from the current running timer to another timer, then return.
+
+Fields:
+  --project <id>       Project ID
+  --task <id>          Task ID
+  --tag <id>           Tag ID; may be repeated
+
+Notes:
+  switch current shows both the currently running temporary timer and the timer that will be resumed.
+  switch start requires a running timer.
+  switch stop returns to the original timer.
+  timer stop behaves like switch stop while a switch is active.
+  status shows when the current timer will return to another timer.
+  Boundaries use the same rounded timestamp on both sides, so there are no gaps.
+  If the temporary timer is too short after rounding, it is discarded and the original timer resumes from the original switch time.
+  Nested switches are not supported.
+
+Examples:
+  cfd switch current --format json
+  cfd switch start \"Support call\" --project <project-id>
+  cfd switch stop
+  cfd support-call switch"
         .into()
 }
 
@@ -517,7 +587,9 @@ fn timer_help() -> String {
   cfd timer start [description] [--start <time>] [fields...] [--no-rounding]
   cfd timer stop [--end <time>] [--no-rounding] [-y]
   cfd timer resume [filter] [-n<count>] [--start <time>] [--no-rounding] [-y]
-  cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <time>] [--no-rounding] [-y]"
+  cfd timer resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <time>] [--no-rounding] [-y]
+  cfd timer switch resume [filter] [-n<count>] [--start <time>] [--no-rounding] [-y]
+  cfd timer switch resume [-1|-2|-3|-4|-5|-6|-7|-8|-9] [--start <time>] [--no-rounding] [-y]"
         .to_string()
         + "
 
@@ -530,8 +602,10 @@ Notes:
   Mutating timer commands apply configured rounding unless --no-rounding is set.
   timer start accepts the description as one optional positional argument.
   timer start uses the current time unless --start is set.
+  timer stop behaves like switch stop while a switch is active.
   Relative times such as -10m, now, and now-2h are accepted for timer start, stop, and resume.
   timer resume copies project, task, tags, and description from a recent entry.
+  timer switch resume uses the same recent-entry selection as timer resume, then starts a temporary switch to that entry.
   timer resume without -1..-9 lists recent entries and prompts for a selection.
   timer resume -n<count> changes the interactive list size; default: 10.
   timer resume \"text\" filters the interactive list by description or task name.
@@ -629,6 +703,7 @@ mod tests {
         assert!(help.contains("Global flags:"));
         assert!(help.contains("today"));
         assert!(help.contains("status"));
+        assert!(help.contains("split entry|timer"));
         assert!(help.contains("--version"));
         assert!(help.contains("--format text|json|raw"));
         assert!(help.contains("timer stop"));
@@ -651,6 +726,18 @@ mod tests {
         assert!(help.contains("Fish"));
         assert!(help.contains("stdout"));
         assert!(help.contains("does not require login"));
+    }
+
+    #[test]
+    fn renders_split_help() {
+        let help = render_help(Some("split"), None, None);
+
+        assert!(help.contains("cfd split entry <id> --at <time>"));
+        assert!(help.contains("cfd split timer --at <time>"));
+        assert!(help.contains("--gap <duration>"));
+        assert!(help.contains("Gap is added after rounding --at"));
+        assert!(help.contains("active switch timer"));
+        assert!(help.contains("`updated` and `created`"));
     }
 
     #[test]

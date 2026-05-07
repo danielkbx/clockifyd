@@ -1,5 +1,6 @@
 use crate::args::ParsedArgs;
 use crate::client::{ClockifyClient, HttpTransport};
+use crate::commands::switch;
 use crate::config;
 use crate::datetime;
 use crate::error::CfdError;
@@ -32,8 +33,11 @@ pub fn execute<T: HttpTransport>(
         Some("start") => start_timer(client, args, workspace_id, config_state),
         Some("stop") => stop_timer(client, args, workspace_id, config_state),
         Some("resume") => resume_timer(client, args, workspace_id, config_state),
+        Some("switch") if args.subaction.as_deref() == Some("resume") => {
+            switch_resume_timer(client, args, workspace_id, config_state)
+        }
         _ => Err(CfdError::message(
-            "usage: cfd timer <current|start|stop|resume>",
+            "usage: cfd timer <current|start|stop|resume|switch resume>",
         )),
     }
 }
@@ -138,19 +142,37 @@ fn resume_timer<T: HttpTransport>(
     config_state: &StoredConfig,
 ) -> Result<(), CfdError> {
     let options = resume_options(args)?;
-    if (!args.yes || options.selector.is_none()) && !io::stdin().is_terminal() {
-        return Err(CfdError::message(
-            "cfd timer resume requires an interactive terminal",
-        ));
-    }
-
+    require_resume_terminal(args, &options)?;
     let user = client.get_current_user()?;
     if find_current_timer_optional(client, workspace_id, &user.id)?.is_some() {
         return Err(CfdError::message("timer already running"));
     }
+    let fields = select_resume_fields(client, args, workspace_id, &user.id, options)?;
+    start_timer_with_fields(client, args, workspace_id, config_state, fields)
+}
 
+fn switch_resume_timer<T: HttpTransport>(
+    client: &ClockifyClient<T>,
+    args: &ParsedArgs,
+    workspace_id: &str,
+    config_state: &StoredConfig,
+) -> Result<(), CfdError> {
+    let options = resume_options(args)?;
+    require_resume_terminal(args, &options)?;
+    let user = client.get_current_user()?;
+    let fields = select_resume_fields(client, args, workspace_id, &user.id, options)?;
+    switch::start_with_fields(client, args, workspace_id, config_state, fields)
+}
+
+fn select_resume_fields<T: HttpTransport>(
+    client: &ClockifyClient<T>,
+    args: &ParsedArgs,
+    workspace_id: &str,
+    user_id: &str,
+    options: ResumeOptions,
+) -> Result<TimerStartFields, CfdError> {
     let mut entries = client
-        .list_time_entries(workspace_id, &user.id, &EntryFilters::default())?
+        .list_time_entries(workspace_id, user_id, &EntryFilters::default())?
         .into_iter()
         .filter(|entry| entry.project_id.is_some())
         .collect::<Vec<_>>();
@@ -226,13 +248,21 @@ fn resume_timer<T: HttpTransport>(
     };
 
     let selected = &entries[selected_index];
-    let fields = TimerStartFields {
+    Ok(TimerStartFields {
         project_id: selected.project_id.clone().unwrap(),
         task_id: selected.task_id.clone(),
         tag_ids: selected.tag_ids.clone(),
         description: (!selected.description.is_empty()).then(|| selected.description.clone()),
-    };
-    start_timer_with_fields(client, args, workspace_id, config_state, fields)
+    })
+}
+
+fn require_resume_terminal(args: &ParsedArgs, options: &ResumeOptions) -> Result<(), CfdError> {
+    if (!args.yes || options.selector.is_none()) && !io::stdin().is_terminal() {
+        return Err(CfdError::message(
+            "cfd timer resume requires an interactive terminal",
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -428,6 +458,17 @@ fn stop_timer<T: HttpTransport>(
 ) -> Result<(), CfdError> {
     let user = client.get_current_user()?;
     let current = find_current_timer(client, workspace_id, &user.id)?;
+    if config_state
+        .active_switch
+        .as_ref()
+        .is_some_and(|active_switch| {
+            active_switch.workspace_id == workspace_id
+                && active_switch.user_id == user.id
+                && active_switch.switched_entry_id == current.id
+        })
+    {
+        return switch::stop_active_switch(client, args, workspace_id, config_state);
+    }
 
     let end = args
         .flags
@@ -559,7 +600,7 @@ fn format_timer_text(
     ))
 }
 
-fn format_elapsed(duration: chrono::Duration) -> String {
+pub(crate) fn format_elapsed(duration: chrono::Duration) -> String {
     let seconds = duration.num_seconds();
     let negative = seconds < 0;
     let seconds = seconds.abs();

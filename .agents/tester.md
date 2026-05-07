@@ -24,6 +24,8 @@ Target areas:
 - `client.rs` - API methods with `MockTransport`
 - `commands/entry.rs` - overlap detection, `--no-rounding`, self-exclusion for updates, `--columns` validation and rendering
 - `commands/timer.rs` - rounding + overlap behavior
+- `commands/split.rs` - entry/timer split boundaries, gap rounding order, overlap behavior, active switch state updates
+- `commands/switch.rs` - active switch current/return-target rendering and stale-state handling
 - `commands/alias.rs` - alias validation, ytd-style interactive default rendering, alias text/JSON rendering
 - `commands/task.rs` - create request shape and output contract
 - `commands/login.rs` - interactive login flow and workspace selection
@@ -65,11 +67,18 @@ Specific coverage:
 20. `today --columns <list>` fails clearly and directs users to `entry list --start today --end today --columns <list>`
 21. `status` renders timer state plus today/week summaries grouped by project/task/description, supports `--week-start monday|sunday`, returns structured JSON/raw output, and rejects `--columns`
 22. `entry list` sorts by start time ascending by default, supports `--sort asc|desc`, and applies the selected order consistently to default text, `--columns`, JSON, and raw output
-23. `alias create|list|delete` manage local aliases, and `cfd <alias> start` starts a timer with stored project/task/description
+23. `alias create|list|delete` manage local aliases; `cfd <alias> start` starts a timer with stored project/task/description, and `cfd <alias> switch` uses those fields for the temporary switched timer
 24. `timer resume` lists recent entries interactively, supports `-1` through `-9`, copies project/task/tags/description, and keeps `-y` semantics for direct-selection and overlap prompts
-25. `entry update` can update only `--end`, only `--duration`, or only metadata; omitted project/task/tags are preserved from the existing entry
-26. `entry update --duration <d>` without `--start` calculates the new end from the existing start, and help text documents that behavior
-27. Relative `--start` and `--end` inputs support `now`, bare `+duration` or `-duration`, and `now+duration` or `now-duration`; `entry update` interprets bare relative durations against the existing same field while other commands interpret them relative to current time
+25. `timer switch resume` uses the same recent-entry selection as `timer resume`, then creates a temporary switch to the selected entry
+26. `entry update` can update only `--end`, only `--duration`, or only metadata; omitted project/task/tags are preserved from the existing entry
+27. `entry update --duration <d>` without `--start` calculates the new end from the existing start, and help text documents that behavior
+28. Relative `--start` and `--end` inputs support `now`, bare `+duration` or `-duration`, and `now+duration` or `now-duration`; `entry update` interprets bare relative durations against the existing same field while other commands interpret them relative to current time
+29. `switch current` returns `active: no` without an active switch, and with an active switch returns both `current` timer fields and `returnsTo` target fields in text and JSON
+30. `switch current --no-meta` suppresses metadata IDs while preserving readable project/task/description fields
+31. stale switch state fails without mutating config or timers
+32. `split entry` updates the original finished entry, creates a copied second entry, returns full updated/created resources, and rejects invalid boundaries
+33. `split timer` stops the current timer, creates a copied running timer, returns full updated/created resources, and updates active switch state when splitting a switch timer
+34. `split --gap` always adds the gap to the already rounded split/end timestamp, then rounds the calculated new start; `--no-rounding` disables both rounding steps
 
 ## Rust-specific Notes
 
@@ -83,6 +92,8 @@ Directory: `user-journeys/`
 
 End-to-end tests that an AI agent runs against a real Clockify workspace. Every journey file describes a full flow with steps, expected results, and cleanup.
 
+User journeys must always be added or updated for user-visible workflow changes. If a command surface, output contract, or common workflow changes, update the journey set in the same change.
+
 Important process rules:
 
 - Before any journey, the agent must run `cfd workspace list`
@@ -91,6 +102,7 @@ Important process rules:
 - The agent must wait for confirmation before proceeding
 - The agent must wait for explicit confirmation of the chosen workspace and project before proceeding
 - For config-isolation scenarios, the agent should use `CFD_CONFIG`
+- For automated harness runs, follow `user-journeys/PROCESS.md` section 2.1. In particular, use a temporary config copy, parse IDs from `id:` lines when commands print expanded text, use `[CFD-TEST]` on every temporary entry description, clean the full harness time window, and isolate `timer resume` selector ordering.
 
 ## Journey Set
 
@@ -112,6 +124,8 @@ Important process rules:
 | Timer Resume | `14-timer-resume.md` | interactive and direct recent-entry resume, copied fields, confirmation defaults |
 | Status Overview | `15-status-overview.md` | timer state, grouped today/week summaries, week-start option, structured JSON |
 | Relative Datetime Inputs | `16-relative-datetime.md` | relative `--start`/`--end`, update-relative existing fields, timer relative times, rounding interaction |
+| Temporary Switches | `17-temporary-switch.md` | temporary timer switches, switch current, status return target, aliases |
+| Split Entries And Timers | `18-split.md` | entry split, timer split, gap rounding order, no-rounding, overlaps |
 
 ## Conventions
 

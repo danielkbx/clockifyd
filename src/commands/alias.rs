@@ -4,7 +4,8 @@ use serde::Serialize;
 
 use crate::args::ParsedArgs;
 use crate::client::{ClockifyClient, HttpTransport};
-use crate::commands::timer::{self, TimerStartFields};
+use crate::commands::timer::TimerStartFields;
+use crate::commands::{switch, timer};
 use crate::config;
 use crate::error::CfdError;
 use crate::format::{self, OutputOptions};
@@ -25,6 +26,7 @@ const BUILTIN_COMMANDS: &[&str] = &[
     "task",
     "entry",
     "today",
+    "switch",
     "timer",
     "completion",
     "alias",
@@ -68,6 +70,36 @@ pub fn execute_runtime_start<T: HttpTransport>(
     }
 
     timer::start_timer_with_fields(
+        client,
+        args,
+        workspace_id,
+        config_state,
+        TimerStartFields {
+            project_id: alias.project.clone(),
+            task_id: alias.task.clone(),
+            tag_ids: Vec::new(),
+            description: alias.description.clone(),
+        },
+    )
+}
+
+pub fn execute_runtime_switch<T: HttpTransport>(
+    client: &ClockifyClient<T>,
+    alias_name: &str,
+    alias: &StoredAlias,
+    args: &ParsedArgs,
+    workspace_id: &str,
+    config_state: &crate::types::StoredConfig,
+) -> Result<(), CfdError> {
+    for flag in ["project", "task", "tag", "description"] {
+        if args.flags.contains_key(flag) {
+            return Err(CfdError::message(format!(
+                "cfd {alias_name} switch does not accept --{flag}; update the alias instead"
+            )));
+        }
+    }
+
+    switch::start_with_fields(
         client,
         args,
         workspace_id,

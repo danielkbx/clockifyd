@@ -86,7 +86,7 @@ fn run() -> Result<(), error::CfdError> {
 
     let runtime_alias = if is_known_command(resource, action, subaction) {
         None
-    } else if matches!((action, subaction), (Some("start"), None)) {
+    } else if matches!((action, subaction), (Some("start" | "switch"), None)) {
         let config = config::get_config()?;
         config.aliases.get(resource).cloned()
     } else {
@@ -184,7 +184,21 @@ fn run() -> Result<(), error::CfdError> {
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
             let client = client::ClockifyClient::new(api_key, client::UreqTransport);
-            commands::status::execute(&client, &args, &workspace_id)
+            commands::status::execute(&client, &args, &workspace_id, &config)
+        }
+        ("split", _, _) => {
+            let config = config::get_config()?;
+            let api_key = config::resolve_api_key(&config)?;
+            let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            commands::split::execute(&client, &args, &workspace_id, &config)
+        }
+        ("switch", _, _) => {
+            let config = config::get_config()?;
+            let api_key = config::resolve_api_key(&config)?;
+            let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            commands::switch::execute(&client, &args, &workspace_id, &config)
         }
         ("timer", _, _) => {
             let config = config::get_config()?;
@@ -224,14 +238,25 @@ fn run() -> Result<(), error::CfdError> {
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
             let client = client::ClockifyClient::new(api_key, client::UreqTransport);
-            commands::alias::execute_runtime_start(
-                &client,
-                resource,
-                runtime_alias.as_ref().unwrap(),
-                &args,
-                &workspace_id,
-                &config,
-            )
+            match action {
+                Some("start") => commands::alias::execute_runtime_start(
+                    &client,
+                    resource,
+                    runtime_alias.as_ref().unwrap(),
+                    &args,
+                    &workspace_id,
+                    &config,
+                ),
+                Some("switch") => commands::alias::execute_runtime_switch(
+                    &client,
+                    resource,
+                    runtime_alias.as_ref().unwrap(),
+                    &args,
+                    &workspace_id,
+                    &config,
+                ),
+                _ => unreachable!(),
+            }
         }
         _ => Err(error::CfdError::message(format!(
             "unknown command: cfd {}",
@@ -267,7 +292,10 @@ fn is_known_command(resource: &str, action: Option<&str>, subaction: Option<&str
             | ("entry", Some("text"), Some("list"))
             | ("today", None, None)
             | ("status", None, None)
+            | ("split", Some("entry" | "timer"), None)
+            | ("switch", Some("current" | "start" | "stop"), None)
             | ("timer", Some("current" | "start" | "stop" | "resume"), None)
+            | ("timer", Some("switch"), Some("resume"))
             | ("completion", Some("bash" | "zsh" | "fish"), None)
     )
 }
@@ -279,7 +307,10 @@ mod main {
     fn router_parts<'a>(path: &'a [&'a str]) -> (&'a str, Option<&'a str>, Option<&'a str>) {
         let resource = path[0];
         let action = path.get(1).copied();
-        let subaction = if matches!((resource, action), ("entry", Some("text"))) {
+        let subaction = if matches!(
+            (resource, action),
+            ("entry", Some("text")) | ("timer", Some("switch"))
+        ) {
             path.get(2).copied()
         } else {
             None
@@ -291,8 +322,11 @@ mod main {
     #[test]
     fn known_commands_cover_entry_text_branch() {
         assert!(is_known_command("entry", Some("text"), Some("list")));
+        assert!(is_known_command("timer", Some("switch"), Some("resume")));
         assert!(is_known_command("today", None, None));
         assert!(is_known_command("status", None, None));
+        assert!(is_known_command("split", Some("entry"), None));
+        assert!(is_known_command("split", Some("timer"), None));
         assert!(is_known_command("config", None, None));
         assert!(is_known_command("config", Some("interactive"), None));
         assert!(!is_known_command("entry", Some("text"), None));

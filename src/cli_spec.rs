@@ -311,6 +311,56 @@ pub fn cli_spec() -> CommandSpec {
                 vec![],
             ),
             command(
+                "split",
+                "Split a time entry or running timer",
+                vec![],
+                vec![],
+                vec![
+                    command(
+                        "entry",
+                        "Split a finished time entry",
+                        vec![option_value("at", "Split time", "time", &[]), gap_option()],
+                        vec![positional("id", "Time entry ID", false, &[])],
+                        vec![],
+                    ),
+                    command(
+                        "timer",
+                        "Split the running timer",
+                        vec![option_value("at", "Split time", "time", &[]), gap_option()],
+                        vec![],
+                        vec![],
+                    ),
+                ],
+            ),
+            command(
+                "switch",
+                "Temporarily switch timers",
+                vec![],
+                vec![],
+                vec![
+                    leaf("current", "Show active switch timer and return target"),
+                    command(
+                        "start",
+                        "Start temporary switched timer",
+                        vec![
+                            option_value("start", "Start time", "time", &[]),
+                            option_value("project", "Project ID", "id", &[]),
+                            option_value("task", "Task ID", "id", &[]),
+                            option_value_repeatable("tag", "Tag ID", "id", &[]),
+                        ],
+                        vec![],
+                        vec![],
+                    ),
+                    command(
+                        "stop",
+                        "Stop temporary timer and return",
+                        vec![option_value("end", "End time", "time", &[])],
+                        vec![],
+                        vec![],
+                    ),
+                ],
+            ),
+            command(
                 "timer",
                 "Manage running timer",
                 vec![],
@@ -353,6 +403,30 @@ pub fn cli_spec() -> CommandSpec {
                         ],
                         vec![],
                         vec![],
+                    ),
+                    command(
+                        "switch",
+                        "Temporarily switch using timer helpers",
+                        vec![],
+                        vec![],
+                        vec![command(
+                            "resume",
+                            "Switch to a recent time entry",
+                            vec![
+                                option_value("start", "Start time", "time", &[]),
+                                option_short_flag('1', "Switch to newest entry"),
+                                option_short_flag('2', "Switch to second newest entry"),
+                                option_short_flag('3', "Switch to third newest entry"),
+                                option_short_flag('4', "Switch to fourth newest entry"),
+                                option_short_flag('5', "Switch to fifth newest entry"),
+                                option_short_flag('6', "Switch to sixth newest entry"),
+                                option_short_flag('7', "Switch to seventh newest entry"),
+                                option_short_flag('8', "Switch to eighth newest entry"),
+                                option_short_flag('9', "Switch to ninth newest entry"),
+                            ],
+                            vec![],
+                            vec![],
+                        )],
                     ),
                 ],
             ),
@@ -460,6 +534,10 @@ fn columns_option() -> OptionSpec {
 
 fn sort_option() -> OptionSpec {
     option_value("sort", "Sort by start time", "asc|desc", SORT_VALUES)
+}
+
+fn gap_option() -> OptionSpec {
+    option_value("gap", "Gap after rounded split time", "duration", &[])
 }
 
 fn command(
@@ -577,6 +655,8 @@ mod tests {
                 "entry",
                 "today",
                 "status",
+                "split",
+                "switch",
                 "timer",
                 "completion",
             ]
@@ -684,6 +764,12 @@ mod tests {
         assert!(paths.contains(&vec!["entry", "text", "list"]));
         assert!(paths.contains(&vec!["today"]));
         assert!(paths.contains(&vec!["status"]));
+        assert!(paths.contains(&vec!["split", "entry"]));
+        assert!(paths.contains(&vec!["split", "timer"]));
+        assert!(paths.contains(&vec!["switch", "current"]));
+        assert!(paths.contains(&vec!["switch", "start"]));
+        assert!(paths.contains(&vec!["switch", "stop"]));
+        assert!(paths.contains(&vec!["timer", "switch", "resume"]));
     }
 
     #[test]
@@ -694,6 +780,8 @@ mod tests {
         assert!(names.contains(&"format"));
         assert!(names.contains(&"sort"));
         assert!(names.contains(&"week-start"));
+        assert!(names.contains(&"at"));
+        assert!(names.contains(&"gap"));
         assert!(names.contains(&"columns"));
         assert!(names.contains(&"duration"));
         assert!(names.contains(&"description"));

@@ -116,7 +116,7 @@ printf 'status-week-start:%s\n' "${{COMPREPLY[*]}}"
     assert!(candidates.contains("top:"));
     assert!(candidates.contains("workspace"));
     assert!(candidates.contains("timer:current start stop"));
-    assert!(candidates.contains("after-global-option:help login logout skill whoami workspace config alias project client tag task entry today status timer completion"));
+    assert!(candidates.contains("after-global-option:help login logout skill whoami workspace config alias project client tag task entry today status split switch timer completion"));
     assert!(candidates.contains("timer-after-option:current start stop"));
     assert!(candidates.contains("entry-text:list"));
     assert!(candidates.contains("rounding:off 1m 5m 10m 15m"));
