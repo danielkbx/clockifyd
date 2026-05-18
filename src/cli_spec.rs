@@ -299,6 +299,13 @@ pub fn cli_spec() -> CommandSpec {
                 vec![],
             ),
             command(
+                "timeline",
+                "Interactive ASCII timeline",
+                vec![],
+                vec![],
+                vec![],
+            ),
+            command(
                 "status",
                 "Show timer, today, and week summary",
                 vec![option_value(
@@ -654,6 +661,7 @@ mod tests {
                 "task",
                 "entry",
                 "today",
+                "timeline",
                 "status",
                 "split",
                 "switch",

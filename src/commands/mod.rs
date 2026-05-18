@@ -14,6 +14,7 @@ pub mod status;
 pub mod switch;
 pub mod tag;
 pub mod task;
+pub mod timeline;
 pub mod timer;
 pub mod today;
 pub mod whoami;

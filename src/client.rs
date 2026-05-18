@@ -13,6 +13,7 @@ pub trait HttpTransport {
     fn delete(&self, url: &str, api_key: &str) -> Result<(), CfdError>;
 }
 
+#[derive(Clone)]
 pub struct UreqTransport;
 
 impl HttpTransport for UreqTransport {
@@ -76,6 +77,7 @@ impl HttpTransport for UreqTransport {
     }
 }
 
+#[derive(Clone)]
 pub struct ClockifyClient<T: HttpTransport> {
     api_key: String,
     base_url: String,

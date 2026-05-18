@@ -79,6 +79,7 @@ Specific coverage:
 32. `split entry` updates the original finished entry, creates a copied second entry, returns full updated/created resources, and rejects invalid boundaries
 33. `split timer` stops the current timer, creates a copied running timer, returns full updated/created resources, and updates active switch state when splitting a switch timer
 34. `split --gap` always adds the gap to the already rounded split/end timestamp, then rounds the calculated new start; `--no-rounding` disables both rounding steps
+35. `timeline` uses all terminal rows that fit two-row day timelines, loads older visible days in week-sized background batches, stays responsive while loading, supports inline cursor entry actions (`n` start timer, `p` stop timer, `s` split, `d` delete), and rejects non-TTY / machine-output modes
 
 ## Rust-specific Notes
 
@@ -126,6 +127,7 @@ Important process rules:
 | Relative Datetime Inputs | `16-relative-datetime.md` | relative `--start`/`--end`, update-relative existing fields, timer relative times, rounding interaction |
 | Temporary Switches | `17-temporary-switch.md` | temporary timer switches, switch current, status return target, aliases |
 | Split Entries And Timers | `18-split.md` | entry split, timer split, gap rounding order, no-rounding, overlaps |
+| Interactive Timeline | `19-timeline.md` | full-height two-row day TUI viewport, background week loading, resize, reload, inline entry actions, non-machine-output behavior |
 
 ## Conventions
 

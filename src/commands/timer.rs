@@ -92,23 +92,57 @@ pub(crate) fn start_timer_with_fields<T: HttpTransport>(
     config_state: &StoredConfig,
     fields: TimerStartFields,
 ) -> Result<(), CfdError> {
+    let entry = start_timer_entry_with_fields(
+        client,
+        workspace_id,
+        config_state,
+        fields,
+        args.flags.get("start").map(String::as_str),
+        args.no_rounding,
+        |warning| {
+            eprintln!(
+                "warning: overlaps existing entries: {}",
+                warning.overlapping_ids.join(", ")
+            );
+            if args.yes {
+                Ok(true)
+            } else {
+                input::confirm("Continue despite overlap?")
+            }
+        },
+    )?;
+    println!("{}", format_resource_id(&entry.id));
+    Ok(())
+}
+
+pub(crate) fn start_timer_entry_with_fields<T: HttpTransport>(
+    client: &ClockifyClient<T>,
+    workspace_id: &str,
+    config_state: &StoredConfig,
+    fields: TimerStartFields,
+    start_input: Option<&str>,
+    no_rounding: bool,
+    confirm_overlap: impl FnOnce(&OverlapWarning) -> Result<bool, CfdError>,
+) -> Result<TimeEntry, CfdError> {
     let user = client.get_current_user()?;
     if find_current_timer_optional(client, workspace_id, &user.id)?.is_some() {
         return Err(CfdError::message("timer already running"));
     }
 
-    let start = args
-        .flags
-        .get("start")
-        .cloned()
+    let start = start_input
+        .map(str::to_owned)
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-    let rounding = config::resolve_rounding(args.no_rounding, config_state)?;
+    let rounding = config::resolve_rounding(no_rounding, config_state)?;
     let start = datetime::resolve_and_round_timestamp("start", &start, rounding)?;
     let _ = chrono::DateTime::parse_from_rfc3339(&start)
         .map_err(|_| CfdError::message(format!("invalid start: {start}")))?;
 
     let warning = find_overlaps(client, workspace_id, &user.id, &start, None, None)?;
-    maybe_confirm_overlap(&warning, args.yes)?;
+    if let Some(warning) = &warning {
+        if !confirm_overlap(warning)? {
+            return Err(CfdError::message("aborted due to overlap"));
+        }
+    }
 
     let mut payload = serde_json::json!({
         "start": start,
@@ -130,9 +164,7 @@ pub(crate) fn start_timer_with_fields<T: HttpTransport>(
         );
     }
 
-    let entry = client.create_time_entry(workspace_id, &payload)?;
-    println!("{}", format_resource_id(&entry.id));
-    Ok(())
+    client.create_time_entry(workspace_id, &payload)
 }
 
 fn resume_timer<T: HttpTransport>(
@@ -470,16 +502,106 @@ fn stop_timer<T: HttpTransport>(
         return switch::stop_active_switch(client, args, workspace_id, config_state);
     }
 
-    let end = args
-        .flags
-        .get("end")
-        .cloned()
+    let entry = stop_timer_entry_for_current(
+        client,
+        workspace_id,
+        config_state,
+        StopTimerCurrent {
+            user_id: &user.id,
+            current: &current,
+            end_input: args.flags.get("end").map(String::as_str),
+            no_rounding: args.no_rounding,
+        },
+        |warning| {
+            eprintln!(
+                "warning: overlaps existing entries: {}",
+                warning.overlapping_ids.join(", ")
+            );
+            if args.yes {
+                Ok(true)
+            } else {
+                input::confirm("Continue despite overlap?")
+            }
+        },
+    )?;
+    print_timer(client, workspace_id, &entry, &args.output)
+}
+
+pub(crate) fn stop_timer_entry<T: HttpTransport>(
+    client: &ClockifyClient<T>,
+    workspace_id: &str,
+    config_state: &StoredConfig,
+    end_input: Option<&str>,
+    no_rounding: bool,
+    confirm_overlap: impl FnOnce(&OverlapWarning) -> Result<bool, CfdError>,
+) -> Result<TimeEntry, CfdError> {
+    let user = client.get_current_user()?;
+    let current = find_current_timer(client, workspace_id, &user.id)?;
+    if config_state
+        .active_switch
+        .as_ref()
+        .is_some_and(|active_switch| {
+            active_switch.workspace_id == workspace_id
+                && active_switch.user_id == user.id
+                && active_switch.switched_entry_id == current.id
+        })
+    {
+        return Err(CfdError::message(
+            "active switch timers must be stopped with cfd switch stop",
+        ));
+    }
+
+    stop_timer_entry_for_current(
+        client,
+        workspace_id,
+        config_state,
+        StopTimerCurrent {
+            user_id: &user.id,
+            current: &current,
+            end_input,
+            no_rounding,
+        },
+        confirm_overlap,
+    )
+}
+
+struct StopTimerCurrent<'a> {
+    user_id: &'a str,
+    current: &'a TimeEntry,
+    end_input: Option<&'a str>,
+    no_rounding: bool,
+}
+
+fn stop_timer_entry_for_current<T: HttpTransport>(
+    client: &ClockifyClient<T>,
+    workspace_id: &str,
+    config_state: &StoredConfig,
+    request: StopTimerCurrent<'_>,
+    confirm_overlap: impl FnOnce(&OverlapWarning) -> Result<bool, CfdError>,
+) -> Result<TimeEntry, CfdError> {
+    if config_state
+        .active_switch
+        .as_ref()
+        .is_some_and(|active_switch| {
+            active_switch.workspace_id == workspace_id
+                && active_switch.user_id == request.user_id
+                && active_switch.switched_entry_id == request.current.id
+        })
+    {
+        return Err(CfdError::message(
+            "active switch timers must be stopped with cfd switch stop",
+        ));
+    }
+
+    let end = request
+        .end_input
+        .map(str::to_owned)
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-    let rounding = config::resolve_rounding(args.no_rounding, config_state)?;
+    let rounding = config::resolve_rounding(request.no_rounding, config_state)?;
     let end = datetime::resolve_and_round_timestamp("end", &end, rounding)?;
     let end_dt = chrono::DateTime::parse_from_rfc3339(&end)
         .map_err(|_| CfdError::message(format!("invalid end: {end}")))?;
-    let start_dt = chrono::DateTime::parse_from_rfc3339(&current.time_interval.start)
+    let start_dt = chrono::DateTime::parse_from_rfc3339(&request.current.time_interval.start)
         .map_err(|_| CfdError::message("invalid timer start"))?;
     if end_dt <= start_dt {
         return Err(CfdError::message(
@@ -490,15 +612,18 @@ fn stop_timer<T: HttpTransport>(
     let warning = find_overlaps(
         client,
         workspace_id,
-        &user.id,
-        &current.time_interval.start,
+        request.user_id,
+        &request.current.time_interval.start,
         Some(&end),
-        Some(current.id.as_str()),
+        Some(request.current.id.as_str()),
     )?;
-    maybe_confirm_overlap(&warning, args.yes)?;
+    if let Some(warning) = &warning {
+        if !confirm_overlap(warning)? {
+            return Err(CfdError::message("aborted due to overlap"));
+        }
+    }
 
-    let entry = client.stop_timer(workspace_id, &user.id, &end)?;
-    print_timer(client, workspace_id, &entry, &args.output)
+    client.stop_timer(workspace_id, request.user_id, &end)
 }
 
 fn find_current_timer<T: HttpTransport>(
@@ -707,6 +832,7 @@ mod tests {
         timer_response: String,
         write_response: String,
         method: Rc<RefCell<Option<String>>>,
+        body: Rc<RefCell<Option<String>>>,
     }
 
     fn resume_args(positional: &[&str], flag_keys: &[&str]) -> ParsedArgs {
@@ -845,14 +971,35 @@ mod tests {
             write_response: &str,
         ) -> (Self, Rc<RefCell<Option<String>>>) {
             let method = Rc::new(RefCell::new(None));
+            let body = Rc::new(RefCell::new(None));
             (
                 Self {
                     user_response: user_response.to_owned(),
                     timer_response: timer_response.to_owned(),
                     write_response: write_response.to_owned(),
                     method: Rc::clone(&method),
+                    body,
                 },
                 method,
+            )
+        }
+
+        fn new_with_body(
+            user_response: &str,
+            timer_response: &str,
+            write_response: &str,
+        ) -> (Self, Rc<RefCell<Option<String>>>) {
+            let method = Rc::new(RefCell::new(None));
+            let body = Rc::new(RefCell::new(None));
+            (
+                Self {
+                    user_response: user_response.to_owned(),
+                    timer_response: timer_response.to_owned(),
+                    write_response: write_response.to_owned(),
+                    method,
+                    body: Rc::clone(&body),
+                },
+                body,
             )
         }
     }
@@ -867,8 +1014,9 @@ mod tests {
             }
         }
 
-        fn post(&self, _url: &str, _api_key: &str, _body: &str) -> Result<String, CfdError> {
+        fn post(&self, _url: &str, _api_key: &str, body: &str) -> Result<String, CfdError> {
             self.method.replace(Some("POST".into()));
+            self.body.replace(Some(body.into()));
             Ok(self.write_response.clone())
         }
 
@@ -1016,6 +1164,93 @@ mod tests {
     }
 
     #[test]
+    fn start_helper_copies_fields_into_create_payload() {
+        let user_json = r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#;
+        let entry_json = serde_json::to_string(&TimeEntry {
+            id: "created".into(),
+            workspace_id: "w1".into(),
+            user_id: Some("u1".into()),
+            project_id: Some("p1".into()),
+            task_id: Some("t1".into()),
+            tag_ids: vec!["tag1".into()],
+            description: "Run".into(),
+            time_interval: TimeInterval {
+                start: "2026-04-23T09:00:00Z".into(),
+                end: None,
+                duration: None,
+            },
+        })
+        .unwrap();
+        let (transport, body) = MockTransport::new_with_body(user_json, "[]", &entry_json);
+        let client = ClockifyClient::new("secret".into(), transport);
+
+        let created = start_timer_entry_with_fields(
+            &client,
+            "w1",
+            &StoredConfig::default(),
+            TimerStartFields {
+                project_id: "p1".into(),
+                task_id: Some("t1".into()),
+                tag_ids: vec!["tag1".into()],
+                description: Some("Run".into()),
+            },
+            Some("2026-04-23T09:00:00Z"),
+            false,
+            |_| Ok(true),
+        )
+        .unwrap();
+
+        let payload: serde_json::Value =
+            serde_json::from_str(body.borrow().as_deref().unwrap()).unwrap();
+        assert_eq!(created.id, "created");
+        assert_eq!(payload["projectId"], "p1");
+        assert_eq!(payload["taskId"], "t1");
+        assert_eq!(payload["tagIds"][0], "tag1");
+        assert_eq!(payload["description"], "Run");
+    }
+
+    #[test]
+    fn start_helper_fails_when_timer_exists() {
+        let user_json = r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#;
+        let running_timers = serde_json::to_string(&vec![TimeEntry {
+            id: "running".into(),
+            workspace_id: "w1".into(),
+            user_id: Some("u1".into()),
+            project_id: Some("p1".into()),
+            task_id: None,
+            tag_ids: vec![],
+            description: "Run".into(),
+            time_interval: TimeInterval {
+                start: "2026-04-23T09:00:00Z".into(),
+                end: None,
+                duration: None,
+            },
+        }])
+        .unwrap();
+        let (transport, _) = MockTransport::new(user_json, &running_timers, "{}");
+        let client = ClockifyClient::new("secret".into(), transport);
+
+        let error = start_timer_entry_with_fields(
+            &client,
+            "w1",
+            &StoredConfig::default(),
+            TimerStartFields {
+                project_id: "p1".into(),
+                task_id: None,
+                tag_ids: vec![],
+                description: None,
+            },
+            Some("2026-04-23T09:00:00Z"),
+            false,
+            |_| Ok(true),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("timer already running"));
+    }
+
+    #[test]
     fn start_requires_project_from_flag_or_config() {
         let user_json = r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#;
         let (transport, _) = MockTransport::new(user_json, "[]", "{}");
@@ -1091,6 +1326,49 @@ mod tests {
             no_rounding: false,
         };
         stop_timer(&client, &stop_args, "w1", &StoredConfig::default()).unwrap();
+        assert_eq!(method.borrow().as_deref(), Some("PATCH"));
+    }
+
+    #[test]
+    fn stop_helper_returns_stopped_entry() {
+        let user_json = r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#;
+        let stopped_entry = TimeEntry {
+            id: "e1".into(),
+            workspace_id: "w1".into(),
+            user_id: Some("u1".into()),
+            project_id: Some("p1".into()),
+            task_id: None,
+            tag_ids: vec![],
+            description: "Run".into(),
+            time_interval: TimeInterval {
+                start: "2026-04-23T09:00:00Z".into(),
+                end: Some("2026-04-23T10:00:00Z".into()),
+                duration: None,
+            },
+        };
+        let write_response = serde_json::to_string(&stopped_entry).unwrap();
+        let running_timers = serde_json::to_string(&vec![TimeEntry {
+            time_interval: TimeInterval {
+                end: None,
+                ..stopped_entry.time_interval.clone()
+            },
+            ..stopped_entry.clone()
+        }])
+        .unwrap();
+        let (transport, method) = MockTransport::new(user_json, &running_timers, &write_response);
+        let client = ClockifyClient::new("secret".into(), transport);
+
+        let stopped = stop_timer_entry(
+            &client,
+            "w1",
+            &StoredConfig::default(),
+            Some("2026-04-23T10:00:00Z"),
+            false,
+            |_| Ok(true),
+        )
+        .unwrap();
+
+        assert_eq!(stopped.id, "e1");
         assert_eq!(method.borrow().as_deref(), Some("PATCH"));
     }
 }

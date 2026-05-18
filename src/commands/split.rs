@@ -18,9 +18,9 @@ const USAGE: &str =
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SplitResult {
-    updated: TimeEntry,
-    created: TimeEntry,
+pub(crate) struct SplitResult {
+    pub(crate) updated: TimeEntry,
+    pub(crate) created: TimeEntry,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,14 +58,64 @@ fn split_entry<T: HttpTransport>(
         }
     };
 
+    let at = args
+        .flags
+        .get("at")
+        .map(String::as_str)
+        .ok_or_else(|| CfdError::message(USAGE))?;
+    let result = split_entry_at(
+        client,
+        workspace_id,
+        config_state,
+        SplitEntryAt {
+            entry_id,
+            at_input: at,
+            gap_input: args.flags.get("gap").map(String::as_str),
+            no_rounding: args.no_rounding,
+        },
+        |warning| {
+            eprintln!(
+                "warning: overlaps existing entries: {}",
+                warning.overlapping_ids.join(", ")
+            );
+            if args.yes {
+                Ok(true)
+            } else {
+                input::confirm("Continue despite overlap?")
+            }
+        },
+    )?;
+    print_result(client, workspace_id, &result, &args.output)
+}
+
+pub(crate) struct SplitEntryAt<'a> {
+    pub(crate) entry_id: &'a str,
+    pub(crate) at_input: &'a str,
+    pub(crate) gap_input: Option<&'a str>,
+    pub(crate) no_rounding: bool,
+}
+
+pub(crate) fn split_entry_at<T: HttpTransport>(
+    client: &ClockifyClient<T>,
+    workspace_id: &str,
+    config_state: &StoredConfig,
+    request: SplitEntryAt<'_>,
+    confirm_overlap: impl FnOnce(&OverlapWarning) -> Result<bool, CfdError>,
+) -> Result<SplitResult, CfdError> {
     let user = client.get_current_user()?;
+    let entry_id = request.entry_id;
     let existing = client.get_time_entry(workspace_id, entry_id)?;
     let original_end = existing.time_interval.end.clone().ok_or_else(|| {
         CfdError::message(
             "entry split requires a finished entry; use cfd split timer for the running timer",
         )
     })?;
-    let times = split_times(args, config_state)?;
+    let times = split_times_from_inputs(
+        request.at_input,
+        request.gap_input,
+        request.no_rounding,
+        config_state,
+    )?;
 
     let original_start_dt = parse_rfc3339("entry start", &existing.time_interval.start)?;
     let original_end_dt = parse_rfc3339("entry end", &original_end)?;
@@ -111,19 +161,15 @@ fn split_entry<T: HttpTransport>(
         Some(&original_end),
         Some(entry_id),
     )?;
-    maybe_confirm_overlap(
-        &combine_warnings([update_warning, create_warning]),
-        args.yes,
-    )?;
+    if let Some(warning) = combine_warnings([update_warning, create_warning]) {
+        if !confirm_overlap(&warning)? {
+            return Err(CfdError::message("aborted due to overlap"));
+        }
+    }
 
     let updated = client.update_time_entry(workspace_id, entry_id, &update_payload)?;
     let created = client.create_time_entry(workspace_id, &create_payload)?;
-    print_result(
-        client,
-        workspace_id,
-        &SplitResult { updated, created },
-        &args.output,
-    )
+    Ok(SplitResult { updated, created })
 }
 
 fn split_timer<T: HttpTransport>(
@@ -256,13 +302,25 @@ fn split_times(args: &ParsedArgs, config_state: &StoredConfig) -> Result<SplitTi
         .get("at")
         .map(String::as_str)
         .ok_or_else(|| CfdError::message(USAGE))?;
-    let rounding = config::resolve_rounding(args.no_rounding, config_state)?;
+    split_times_from_inputs(
+        at,
+        args.flags.get("gap").map(String::as_str),
+        args.no_rounding,
+        config_state,
+    )
+}
+
+fn split_times_from_inputs(
+    at: &str,
+    gap: Option<&str>,
+    no_rounding: bool,
+    config_state: &StoredConfig,
+) -> Result<SplitTimes, CfdError> {
+    let rounding = config::resolve_rounding(no_rounding, config_state)?;
     let split_end = datetime::resolve_and_round_timestamp("at", at, rounding)?;
     let split_end_dt = parse_rfc3339("split time", &split_end)?;
-    let gap = args
-        .flags
-        .get("gap")
-        .map(|value| duration::parse_duration(value))
+    let gap = gap
+        .map(duration::parse_duration)
         .transpose()?
         .unwrap_or_else(chrono::Duration::zero);
     let new_start_unrounded = split_end_dt + gap;

@@ -179,6 +179,13 @@ fn run() -> Result<(), error::CfdError> {
             let client = client::ClockifyClient::new(api_key, client::UreqTransport);
             commands::today::execute(&client, &args, &workspace_id)
         }
+        ("timeline", _, _) => {
+            let config = config::get_config()?;
+            let api_key = config::resolve_api_key(&config)?;
+            let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            commands::timeline::execute(&client, &args, &workspace_id, &config)
+        }
         ("status", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
@@ -291,6 +298,7 @@ fn is_known_command(resource: &str, action: Option<&str>, subaction: Option<&str
             )
             | ("entry", Some("text"), Some("list"))
             | ("today", None, None)
+            | ("timeline", None, None)
             | ("status", None, None)
             | ("split", Some("entry" | "timer"), None)
             | ("switch", Some("current" | "start" | "stop"), None)

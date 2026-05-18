@@ -303,7 +303,8 @@ fn push_output_rules(out: &mut String) {
     out.push_str("- Entry timeline outputs (`entry list`, `today`) support `--sort asc|desc` and sort by start time ascending by default; use `--sort desc` for newest first.\n");
     out.push_str("- `status` gives a computed timer/today/week overview; JSON/raw output returns grouped summary data, not raw time-entry arrays.\n");
     out.push_str("- Use text output for quick human-readable inspection.\n");
-    out.push_str("- `--format raw` is a compatibility alias for JSON on normal cfd commands. `cfd skill` supports only `--format text` and `--format md`.\n\n");
+    out.push_str("- `--format raw` is a compatibility alias for JSON on normal cfd commands. `cfd skill` supports only `--format text` and `--format md`.\n");
+    out.push_str("- `cfd timeline` is an interactive TTY-only visualisation for humans; it has no JSON output and no value for AI agents — use `cfd today` or `cfd entry list` instead.\n\n");
 }
 
 fn push_core_commands(

@@ -21,6 +21,7 @@ pub fn render_help(
         (Some("entry"), Some("text"), _) => entry_text_help(),
         (Some("entry"), _, _) => entry_help(),
         (Some("today"), _, _) => today_help(),
+        (Some("timeline"), _, _) => timeline_help(),
         (Some("status"), _, _) => status_help(),
         (Some("split"), _, _) => split_help(),
         (Some("switch"), _, _) => switch_help(),
@@ -116,6 +117,7 @@ fn global_help() -> String {
             ("entry update <id>", "Update time entry"),
             ("entry delete <id>", "Delete time entry"),
             ("today", "Show today's time entries"),
+            ("timeline", "Interactive ASCII timeline (TTY-only)"),
             ("status", "Show timer, today, and week summary"),
             ("split entry|timer", "Split an entry or running timer"),
         ],
@@ -495,6 +497,50 @@ Notes:
   Use `--sort desc` to show newest entries first.
   Task displays the Clockify task ID.
   Use `entry list --start today --end today --columns ...` for tab-separated columns."
+        .into()
+}
+
+fn timeline_help() -> String {
+    "Usage:
+  cfd timeline [--workspace <id>] [--no-rounding]
+
+Interactive ASCII visualisation of as many days as fit in the terminal,
+using two timeline rows per day. The newest day is at the bottom. Older
+visible days may show as loading briefly while Clockify data arrives in
+the background. The date appears on the left; the day's total appears on
+the right.
+
+The shared time axis spans from 08:00 (or the earliest entry across the
+visible days, whichever is earlier) to 18:00 (or the last entry's end /
+current time, whichever is later). Each entry is drawn as a scaled block
+on both rows of its day's bar across the terminal width. The first block
+row shows the task or description when it fits; the second shows duration.
+A vertical cursor highlights one column across both rows; details for the
+selected day's block under the cursor are shown in a two-column legend
+below the time axis.
+
+Keys:
+  The top bar shows currently available global shortcuts for navigation,
+  reload, quit, and stopping a running timer.
+  The bottom bar appears only when the cursor is over an entry with available
+  actions. It uses the selected entry's color and shows entry actions such as
+  start timer, split, and delete.
+  Split is shown only when the cursor is at least one cursor step after the
+  entry start and at least one cursor step before the entry end.
+  Shortcuts that are not shown are ignored and emit a terminal bell.
+  Inline confirmations show only confirm/cancel choices; other keys are
+  ignored with a bell except Ctrl-C, which exits.
+
+The cursor step matches the configured rounding (1m / 5m / 10m / 15m).
+With rounding off, the step defaults to 15 minutes.
+Entry actions use inline confirmations inside the TUI. Timer start, timer
+stop, and split still respect configured rounding, --no-rounding, and
+overlap warnings.
+
+Notes:
+  Requires an interactive terminal (TTY); pipes and CI are rejected.
+  This command has no machine-readable output and is not useful for AI agents.
+  No --format or --columns support."
         .into()
 }
 

@@ -97,6 +97,7 @@ cfd entry update <id> [--start <time>] [--end <time> | --duration <d>] [fields..
 cfd entry delete <id> [-y]
 
 cfd today [--sort asc|desc]
+cfd timeline
 
 cfd split entry <id> --at <time> [--gap <duration>] [--no-rounding] [-y]
 cfd split timer --at <time> [--gap <duration>] [--no-rounding] [-y]
@@ -198,6 +199,7 @@ Credential and settings resolution order:
 - `entry update` may omit fields; omitted values are loaded from the existing entry before sending Clockify `PUT`. `--duration` without `--start` calculates the new end from the existing start.
 - `split entry` updates the original finished entry end and creates a copied second entry. `split timer` stops the current timer and starts a copied new timer. Gap handling is exact: `split_end = round(resolve(--at))`, `new_start_unrounded = split_end + gap`, `new_start = round(new_start_unrounded)`. `--gap` is always added to the already rounded split/end timestamp.
 - `timer resume` copies project/task/tags/description from a recent entry and uses a fresh start time. Interactive resume supports `-n<count>` to change the displayed candidate count and a quoted text filter matching description or task name. Direct resume supports `-1` through `-9`; direct selectors do not accept filters or `-n<count>`.
+- `timeline` is an interactive TUI (crossterm) that renders a viewport of stacked ASCII timelines (newest at the bottom, as many days as fit in the terminal, two timeline rows per day), with a shared time axis and a cursor-driven legend for the selected day's block. The left label area shows the date; the right side shows the day total. Blocks render across both rows; the first row shows task/description when it fits, and the second row shows duration when it fits. Startup uses the full terminal height; older visible days may render as loading while week-sized background fetches complete. Pressing ↑ above loaded rows schedules another older week without blocking the TUI. The viewport scrolls as the selection moves and adapts to terminal height. It requires a TTY, has no `--format` / `--columns`, and offers no value for AI agents. Cursor steps match configured rounding (15m when rounding is off). Keys: ←/→ step, ↑/↓ change selected day, Home/End jump to bounds, t jumps to now on today's row, r reloads, q/Esc/Ctrl-C exit.
 - Overlap warnings apply to `entry add`, `entry update`, `timer start`, `timer stop`, `timer resume`, `split entry`, and `split timer`.
 - Overlap is warning plus confirmation, not a hard error.
 - `-y` skips confirmation prompts but must not skip overlap detection.

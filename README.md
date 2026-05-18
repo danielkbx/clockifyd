@@ -265,6 +265,7 @@ cfd entry update <id> [--start <time>] [--end <time> | --duration <d>] [fields..
 cfd entry delete <id> [-y]
 
 cfd today [--sort asc|desc]
+cfd timeline
 cfd status [--week-start monday|sunday]
 
 cfd split entry <id> --at <time> [--gap <duration>] [--no-rounding] [-y]
@@ -317,6 +318,33 @@ cfd today --sort desc
 `cfd today` shows today's entries as an ASCII table with a total row. The text columns are `Project`, `Task`, `Description`, `Time`, and `Duration`. Running entries are displayed as `HH:MM-now` and count toward the total. Entries sort by start time ascending by default, putting the newest entry at the bottom; use `--sort desc` to show newest entries first.
 
 `--format json` and `--format raw` return the time-entry JSON array in the selected sort order, matching `cfd entry list --start today --end today --format json`. Use `entry list --start today --end today --columns <list>` when you need tab-separated columns.
+
+### Interactive Timeline
+
+```bash
+cfd timeline
+```
+
+`cfd timeline` opens an interactive ASCII visualisation of as many days as fit in the terminal, using two timeline rows per day, with the newest day at the bottom. The date appears on the left and the day's total appears on the right. Older visible days may show as loading briefly while Clockify data arrives in week-sized background batches. The shared time axis spans from 08:00 (or the earliest entry across visible days, whichever is earlier) to 18:00 (or the last entry's end / current time, whichever is later). Each entry is drawn as a scaled two-row block on its day's timeline across the terminal width: the first row shows the task or description when it fits, and the second row shows the duration when it fits. A vertical cursor spans both timeline rows for every visible day; details for the selected day's block under the cursor are shown in a two-column legend below the time axis.
+
+Keys:
+
+- `←` / `→` — move the cursor by one rounding step
+- `↑` / `↓` — move the selection between days; scrolling above loaded days schedules older weeks in the background
+- `Home` / `End` — jump to the start / end of the visible day
+- `t` — jump to the current time on today's row
+- `n` — start a timer from the entry under the cursor, starting now and copying project, task, tags, and description
+- `p` — stop the current timer after confirmation, unless `-y` was passed
+- `s` — split the entry under the cursor at the cursor time; shown only at a valid split position at least one cursor step after entry start and one cursor step before entry end
+- `d` — delete the entry under the cursor after confirmation
+- `r` — reload entries from Clockify
+- `q` / `Esc` / `Ctrl-C` — exit
+
+The cursor step matches the configured rounding (1m, 5m, 10m, 15m). When rounding is off, the step defaults to 15 minutes.
+
+Entry actions stay inside the TUI: confirmations, overlap warnings, errors, and success messages appear inline. `p` is based on the current running timer status, not only on entries visible in the timeline. `n`, `p`, and `s` still use the same rounding and overlap rules as `timer start`, `timer stop`, and `split entry`; `--no-rounding` disables rounding for those mutation timestamps while keeping the cursor step at 15 minutes when rounding is off.
+
+`cfd timeline` requires an interactive terminal and is intentionally human-only — it has no `--format` or `--columns` support and no value for AI agents. Use `cfd today` or `cfd entry list` for machine-readable output.
 
 ### Status Overview
 
