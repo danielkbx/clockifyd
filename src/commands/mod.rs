@@ -7,6 +7,7 @@ pub mod entry;
 pub mod list_columns;
 pub mod login;
 pub mod logout;
+pub mod overlap;
 pub mod project;
 pub mod skill;
 pub mod split;

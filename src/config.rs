@@ -37,33 +37,37 @@ pub fn save_config(config: &StoredConfig) -> Result<(), CfdError> {
 
     fs::create_dir_all(parent)?;
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
+    let json = serde_json::to_string_pretty(config)?;
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("config.json");
+    let tmp = parent.join(format!(".{file_name}.tmp.{}", std::process::id()));
 
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .mode(0o600)
-            .open(&path)?;
-        let json = serde_json::to_string_pretty(config)?;
+    let write_result: Result<(), CfdError> = (|| {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.create_new(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut file = opts.open(&tmp)?;
         file.write_all(json.as_bytes())?;
         file.write_all(b"\n")?;
+        file.sync_all()?;
+        Ok(())
+    })();
+
+    if let Err(err) = write_result {
+        let _ = fs::remove_file(&tmp);
+        return Err(err);
     }
 
-    #[cfg(not(unix))]
-    {
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(&path)?;
-        let json = serde_json::to_string_pretty(config)?;
-        file.write_all(json.as_bytes())?;
-        file.write_all(b"\n")?;
+    if let Err(err) = fs::rename(&tmp, &path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(err.into());
     }
-
     Ok(())
 }
 

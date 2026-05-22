@@ -1,6 +1,6 @@
 use crate::args::ParsedArgs;
 use crate::client::{ClockifyClient, HttpTransport};
-use crate::commands::switch;
+use crate::commands::{overlap, switch};
 use crate::config;
 use crate::datetime;
 use crate::error::CfdError;
@@ -760,61 +760,11 @@ fn find_overlaps<T: HttpTransport>(
     end: Option<&str>,
     exclude_id: Option<&str>,
 ) -> Result<Option<OverlapWarning>, CfdError> {
-    let entries = client.list_time_entries(workspace_id, user_id, &EntryFilters::default())?;
-    let start_dt = chrono::DateTime::parse_from_rfc3339(start)
-        .map_err(|_| CfdError::message(format!("invalid start: {start}")))?;
-    let end_dt = end
-        .map(chrono::DateTime::parse_from_rfc3339)
-        .transpose()
-        .map_err(|_| CfdError::message("invalid end"))?;
-
-    let mut overlapping_ids = Vec::new();
-    for entry in entries {
-        if exclude_id == Some(entry.id.as_str()) {
-            continue;
-        }
-        let existing_start = chrono::DateTime::parse_from_rfc3339(&entry.time_interval.start)
-            .map_err(|_| CfdError::message("invalid existing start"))?;
-        let existing_end = entry
-            .time_interval
-            .end
-            .as_deref()
-            .map(chrono::DateTime::parse_from_rfc3339)
-            .transpose()
-            .map_err(|_| CfdError::message("invalid existing end"))?;
-
-        let overlaps = match (end_dt, existing_end) {
-            (Some(new_end), Some(existing_end)) => {
-                existing_start < new_end && start_dt < existing_end
-            }
-            (Some(new_end), None) => existing_start < new_end,
-            (None, Some(existing_end)) => start_dt < existing_end,
-            (None, None) => true,
-        };
-
-        if overlaps {
-            overlapping_ids.push(entry.id);
-        }
-    }
-
-    if overlapping_ids.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(OverlapWarning { overlapping_ids }))
-    }
+    overlap::detect(client, workspace_id, user_id, start, end, exclude_id)
 }
 
 fn maybe_confirm_overlap(warning: &Option<OverlapWarning>, yes: bool) -> Result<(), CfdError> {
-    if let Some(warning) = warning {
-        eprintln!(
-            "warning: overlaps existing entries: {}",
-            warning.overlapping_ids.join(", ")
-        );
-        if !yes && !input::confirm("Continue despite overlap?")? {
-            return Err(CfdError::message("aborted due to overlap"));
-        }
-    }
-    Ok(())
+    overlap::confirm(warning, yes)
 }
 
 #[cfg(test)]

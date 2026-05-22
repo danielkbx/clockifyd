@@ -3,6 +3,7 @@ use crate::client::{ClockifyClient, HttpTransport};
 use crate::commands::list_columns::{
     format_tsv_rows, parse_optional_columns, validate_columns_with_format,
 };
+use crate::commands::overlap;
 use crate::config;
 use crate::datetime;
 use crate::duration;
@@ -11,8 +12,7 @@ use crate::format::{
     format_entry_text_items, format_json, format_resource_id, format_text_blocks,
     format_text_fields, OutputFormat, OutputOptions, TextField,
 };
-use crate::input;
-use crate::types::{EntryFilters, EntryTextItem, StoredConfig, TimeEntry};
+use crate::types::{EntryFilters, EntryTextItem, OverlapWarning, StoredConfig, TimeEntry};
 use chrono::{DateTime, FixedOffset};
 use std::collections::BTreeMap;
 
@@ -149,7 +149,7 @@ fn add_entry<T: HttpTransport>(
         payload["start"].as_str().unwrap(),
         payload["end"].as_str().unwrap(),
     )?;
-    maybe_confirm_overlap(&warning, args.yes)?;
+    overlap::confirm(&warning, args.yes)?;
     let entry = client.create_time_entry(workspace_id, &payload)?;
     println!("{}", format_resource_id(&entry.id));
     Ok(())
@@ -182,10 +182,133 @@ fn update_entry<T: HttpTransport>(
         payload["start"].as_str().unwrap(),
         payload["end"].as_str().unwrap(),
     )?;
-    maybe_confirm_overlap(&warning, args.yes)?;
+    overlap::confirm(&warning, args.yes)?;
     let entry = client.update_time_entry(workspace_id, entry_id, &payload)?;
     println!("{}", format_resource_id(&entry.id));
     Ok(())
+}
+
+pub(crate) struct ExactEntryTimeUpdate<'a> {
+    pub entry_id: &'a str,
+    pub start: &'a str,
+    pub end: &'a str,
+}
+
+pub(crate) struct ExactEntryStartUpdate<'a> {
+    pub entry_id: &'a str,
+    pub start: &'a str,
+    pub overlap_end: Option<&'a str>,
+}
+
+pub(crate) fn update_entry_times_exact<T, F>(
+    client: &ClockifyClient<T>,
+    workspace_id: &str,
+    request: ExactEntryTimeUpdate<'_>,
+    confirm_overlap: F,
+) -> Result<TimeEntry, CfdError>
+where
+    T: HttpTransport,
+    F: FnOnce(&OverlapWarning) -> Result<bool, CfdError>,
+{
+    let user = client.get_current_user()?;
+    let existing = client.get_time_entry(workspace_id, request.entry_id)?;
+    if existing.time_interval.end.is_none() {
+        return Err(CfdError::message(
+            "cannot update exact times for running entry",
+        ));
+    }
+
+    let start_dt = chrono::DateTime::parse_from_rfc3339(request.start)
+        .map_err(|_| CfdError::message(format!("invalid start: {}", request.start)))?;
+    let end_dt = chrono::DateTime::parse_from_rfc3339(request.end)
+        .map_err(|_| CfdError::message(format!("invalid end: {}", request.end)))?;
+    if end_dt <= start_dt {
+        return Err(CfdError::message("end must be after start"));
+    }
+
+    let warning = find_overlaps_for_payload(
+        client,
+        workspace_id,
+        &user.id,
+        Some(request.entry_id),
+        request.start,
+        request.end,
+    )?;
+    if let Some(warning) = warning.as_ref() {
+        if !confirm_overlap(warning)? {
+            return Err(CfdError::message("aborted due to overlap"));
+        }
+    }
+
+    let mut payload = serde_json::json!({
+        "start": request.start,
+        "end": request.end,
+    });
+    apply_existing_entry_fields(&existing, &mut payload);
+
+    client.update_time_entry(workspace_id, request.entry_id, &payload)
+}
+
+pub(crate) fn update_entry_start_exact<T, F>(
+    client: &ClockifyClient<T>,
+    workspace_id: &str,
+    request: ExactEntryStartUpdate<'_>,
+    confirm_overlap: F,
+) -> Result<TimeEntry, CfdError>
+where
+    T: HttpTransport,
+    F: FnOnce(&OverlapWarning) -> Result<bool, CfdError>,
+{
+    let user = client.get_current_user()?;
+    let existing = client.get_time_entry(workspace_id, request.entry_id)?;
+
+    let start_dt = chrono::DateTime::parse_from_rfc3339(request.start)
+        .map_err(|_| CfdError::message(format!("invalid start: {}", request.start)))?;
+    let end_dt = existing
+        .time_interval
+        .end
+        .as_deref()
+        .map(chrono::DateTime::parse_from_rfc3339)
+        .transpose()
+        .map_err(|_| CfdError::message("invalid existing end"))?;
+    if let Some(end_dt) = end_dt {
+        if end_dt <= start_dt {
+            return Err(CfdError::message("end must be after start"));
+        }
+    }
+    if let Some(overlap_end) = request.overlap_end {
+        let overlap_end_dt = chrono::DateTime::parse_from_rfc3339(overlap_end)
+            .map_err(|_| CfdError::message(format!("invalid end: {overlap_end}")))?;
+        if overlap_end_dt <= start_dt {
+            return Err(CfdError::message("end must be after start"));
+        }
+    }
+
+    let entries = client.list_time_entries(workspace_id, &user.id, &EntryFilters::default())?;
+    let overlapping_ids = overlap::detect_in(
+        &entries,
+        request.start,
+        request
+            .overlap_end
+            .or(existing.time_interval.end.as_deref()),
+        Some(request.entry_id),
+    )?;
+    if !overlapping_ids.is_empty() {
+        let warning = OverlapWarning { overlapping_ids };
+        if !confirm_overlap(&warning)? {
+            return Err(CfdError::message("aborted due to overlap"));
+        }
+    }
+
+    let mut payload = serde_json::json!({
+        "start": request.start,
+    });
+    if let Some(end) = existing.time_interval.end.as_deref() {
+        payload["end"] = serde_json::Value::String(end.to_owned());
+    }
+    apply_existing_entry_fields(&existing, &mut payload);
+
+    client.update_time_entry(workspace_id, request.entry_id, &payload)
 }
 
 fn delete_entry<T: HttpTransport>(
@@ -417,76 +540,7 @@ fn find_overlaps_for_payload<T: HttpTransport>(
     start: &str,
     end: &str,
 ) -> Result<Option<crate::types::OverlapWarning>, CfdError> {
-    let entries = client.list_time_entries(workspace_id, user_id, &EntryFilters::default())?;
-    let overlapping_ids = find_overlaps(&entries, start, Some(end), exclude_id)?;
-    if overlapping_ids.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(crate::types::OverlapWarning { overlapping_ids }))
-    }
-}
-
-fn find_overlaps(
-    entries: &[TimeEntry],
-    start: &str,
-    end: Option<&str>,
-    exclude_id: Option<&str>,
-) -> Result<Vec<String>, CfdError> {
-    let start_dt = chrono::DateTime::parse_from_rfc3339(start)
-        .map_err(|_| CfdError::message(format!("invalid start: {start}")))?;
-    let end_dt = end
-        .map(chrono::DateTime::parse_from_rfc3339)
-        .transpose()
-        .map_err(|_| CfdError::message(format!("invalid end: {}", end.unwrap_or_default())))?;
-
-    let mut overlapping = Vec::new();
-
-    for entry in entries {
-        if exclude_id == Some(entry.id.as_str()) {
-            continue;
-        }
-
-        let existing_start = chrono::DateTime::parse_from_rfc3339(&entry.time_interval.start)
-            .map_err(|_| CfdError::message("invalid existing start"))?;
-        let existing_end = entry
-            .time_interval
-            .end
-            .as_deref()
-            .map(chrono::DateTime::parse_from_rfc3339)
-            .transpose()
-            .map_err(|_| CfdError::message("invalid existing end"))?;
-
-        let overlaps = match (end_dt, existing_end) {
-            (Some(new_end), Some(existing_end)) => {
-                existing_start < new_end && start_dt < existing_end
-            }
-            (Some(new_end), None) => existing_start < new_end,
-            (None, Some(existing_end)) => start_dt < existing_end,
-            (None, None) => true,
-        };
-
-        if overlaps {
-            overlapping.push(entry.id.clone());
-        }
-    }
-
-    Ok(overlapping)
-}
-
-fn maybe_confirm_overlap(
-    warning: &Option<crate::types::OverlapWarning>,
-    yes: bool,
-) -> Result<(), CfdError> {
-    if let Some(warning) = warning {
-        eprintln!(
-            "warning: overlaps existing entries: {}",
-            warning.overlapping_ids.join(", ")
-        );
-        if !yes && !input::confirm("Continue despite overlap?")? {
-            return Err(CfdError::message("aborted due to overlap"));
-        }
-    }
-    Ok(())
+    overlap::detect(client, workspace_id, user_id, start, Some(end), exclude_id)
 }
 
 fn filters_from_args(args: &ParsedArgs) -> Result<EntryFilters, CfdError> {
@@ -915,16 +969,14 @@ mod tests {
         last_body: Rc<RefCell<Option<String>>>,
     }
 
+    type LastCell = Rc<RefCell<Option<String>>>;
+
     impl MockTransport {
         fn new(
             user_response: &str,
             list_response: &str,
             write_response: &str,
-        ) -> (
-            Self,
-            Rc<RefCell<Option<String>>>,
-            Rc<RefCell<Option<String>>>,
-        ) {
+        ) -> (Self, LastCell, LastCell) {
             let last_method = Rc::new(RefCell::new(None));
             let last_body = Rc::new(RefCell::new(None));
             (
@@ -1004,6 +1056,23 @@ mod tests {
             time_interval: TimeInterval {
                 start: "2026-04-23T09:00:00Z".into(),
                 end: Some("2026-04-23T10:00:00Z".into()),
+                duration: None,
+            },
+        }
+    }
+
+    fn running_existing_entry() -> TimeEntry {
+        TimeEntry {
+            id: "e1".into(),
+            workspace_id: "w1".into(),
+            user_id: Some("u1".into()),
+            project_id: Some("p1".into()),
+            task_id: Some("t1".into()),
+            tag_ids: vec!["tag1".into()],
+            description: "Focus".into(),
+            time_interval: TimeInterval {
+                start: "2026-04-23T09:00:00Z".into(),
+                end: None,
                 duration: None,
             },
         }
@@ -1706,6 +1775,241 @@ mod tests {
             .to_string();
 
         assert!(error.contains("requires an end time for running entries"));
+    }
+
+    #[test]
+    fn exact_update_preserves_metadata_and_sends_exact_times() {
+        let response = serde_json::to_string(&closed_existing_entry()).unwrap();
+        let user_json = r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#;
+        let empty_list = "[]";
+        let (transport, last_method, last_body) =
+            MockTransport::new(user_json, empty_list, &response);
+        let client = ClockifyClient::new("secret".into(), transport);
+
+        let updated = update_entry_times_exact(
+            &client,
+            "w1",
+            ExactEntryTimeUpdate {
+                entry_id: "e1",
+                start: "2026-04-23T09:15:00+00:00",
+                end: "2026-04-23T10:15:00+00:00",
+            },
+            |_| Ok(true),
+        )
+        .unwrap();
+
+        assert_eq!(updated.id, "e1");
+        assert_eq!(last_method.borrow().as_deref(), Some("PUT"));
+        let body: serde_json::Value =
+            serde_json::from_str(last_body.borrow().as_deref().unwrap()).unwrap();
+        assert_eq!(body["start"], "2026-04-23T09:15:00+00:00");
+        assert_eq!(body["end"], "2026-04-23T10:15:00+00:00");
+        assert_eq!(body["description"], "Focus");
+        assert_eq!(body["projectId"], "p1");
+        assert_eq!(body["taskId"], "t1");
+        assert_eq!(body["tagIds"][0], "tag1");
+    }
+
+    #[test]
+    fn exact_update_rejects_invalid_interval() {
+        let response = serde_json::to_string(&closed_existing_entry()).unwrap();
+        let user_json = r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#;
+        let empty_list = "[]";
+        let (transport, _, _) = MockTransport::new(user_json, empty_list, &response);
+        let client = ClockifyClient::new("secret".into(), transport);
+
+        let error = update_entry_times_exact(
+            &client,
+            "w1",
+            ExactEntryTimeUpdate {
+                entry_id: "e1",
+                start: "2026-04-23T10:00:00+00:00",
+                end: "2026-04-23T10:00:00+00:00",
+            },
+            |_| Ok(true),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("end must be after start"));
+    }
+
+    #[test]
+    fn exact_update_excludes_self_from_overlap_check() {
+        let response = serde_json::to_string(&closed_existing_entry()).unwrap();
+        let user_json = r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#;
+        let list_response = serde_json::to_string(&[closed_existing_entry()]).unwrap();
+        let (transport, last_method, _) = MockTransport::new(user_json, &list_response, &response);
+        let client = ClockifyClient::new("secret".into(), transport);
+        let mut confirm_called = false;
+
+        update_entry_times_exact(
+            &client,
+            "w1",
+            ExactEntryTimeUpdate {
+                entry_id: "e1",
+                start: "2026-04-23T09:15:00+00:00",
+                end: "2026-04-23T10:15:00+00:00",
+            },
+            |_| {
+                confirm_called = true;
+                Ok(true)
+            },
+        )
+        .unwrap();
+
+        assert!(!confirm_called);
+        assert_eq!(last_method.borrow().as_deref(), Some("PUT"));
+    }
+
+    #[test]
+    fn exact_update_reports_overlap_ids() {
+        let response = serde_json::to_string(&closed_existing_entry()).unwrap();
+        let user_json = r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#;
+        let overlapping = TimeEntry {
+            id: "other".into(),
+            workspace_id: "w1".into(),
+            user_id: Some("u1".into()),
+            project_id: Some("p1".into()),
+            task_id: None,
+            tag_ids: vec![],
+            description: "Other".into(),
+            time_interval: TimeInterval {
+                start: "2026-04-23T09:30:00Z".into(),
+                end: Some("2026-04-23T09:45:00Z".into()),
+                duration: None,
+            },
+        };
+        let list_response = serde_json::to_string(&[closed_existing_entry(), overlapping]).unwrap();
+        let (transport, last_method, _) = MockTransport::new(user_json, &list_response, &response);
+        let client = ClockifyClient::new("secret".into(), transport);
+        let mut overlap_ids = Vec::<String>::new();
+
+        let error = update_entry_times_exact(
+            &client,
+            "w1",
+            ExactEntryTimeUpdate {
+                entry_id: "e1",
+                start: "2026-04-23T09:15:00+00:00",
+                end: "2026-04-23T10:15:00+00:00",
+            },
+            |warning| {
+                overlap_ids = warning.overlapping_ids.clone();
+                Ok(false)
+            },
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("aborted due to overlap"));
+        assert_eq!(overlap_ids, vec!["other"]);
+        assert_ne!(last_method.borrow().as_deref(), Some("PUT"));
+    }
+
+    #[test]
+    fn exact_start_update_preserves_metadata_and_omits_end_for_running_entry() {
+        let response = serde_json::to_string(&running_existing_entry()).unwrap();
+        let user_json = r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#;
+        let empty_list = "[]";
+        let (transport, last_method, last_body) =
+            MockTransport::new(user_json, empty_list, &response);
+        let client = ClockifyClient::new("secret".into(), transport);
+
+        let updated = update_entry_start_exact(
+            &client,
+            "w1",
+            ExactEntryStartUpdate {
+                entry_id: "e1",
+                start: "2026-04-23T08:45:00+00:00",
+                overlap_end: Some("2026-04-23T10:00:00+00:00"),
+            },
+            |_| Ok(true),
+        )
+        .unwrap();
+
+        assert_eq!(updated.id, "e1");
+        assert_eq!(last_method.borrow().as_deref(), Some("PUT"));
+        let body: serde_json::Value =
+            serde_json::from_str(last_body.borrow().as_deref().unwrap()).unwrap();
+        assert_eq!(body["start"], "2026-04-23T08:45:00+00:00");
+        assert!(body.get("end").is_none());
+        assert_eq!(body["description"], "Focus");
+        assert_eq!(body["projectId"], "p1");
+        assert_eq!(body["taskId"], "t1");
+        assert_eq!(body["tagIds"][0], "tag1");
+    }
+
+    #[test]
+    fn exact_start_update_excludes_self_from_overlap_check() {
+        let response = serde_json::to_string(&running_existing_entry()).unwrap();
+        let user_json = r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#;
+        let list_response = serde_json::to_string(&[running_existing_entry()]).unwrap();
+        let (transport, last_method, _) = MockTransport::new(user_json, &list_response, &response);
+        let client = ClockifyClient::new("secret".into(), transport);
+        let mut confirm_called = false;
+
+        update_entry_start_exact(
+            &client,
+            "w1",
+            ExactEntryStartUpdate {
+                entry_id: "e1",
+                start: "2026-04-23T08:45:00+00:00",
+                overlap_end: Some("2026-04-23T10:00:00+00:00"),
+            },
+            |_| {
+                confirm_called = true;
+                Ok(true)
+            },
+        )
+        .unwrap();
+
+        assert!(!confirm_called);
+        assert_eq!(last_method.borrow().as_deref(), Some("PUT"));
+    }
+
+    #[test]
+    fn exact_start_update_reports_overlap_ids() {
+        let response = serde_json::to_string(&running_existing_entry()).unwrap();
+        let user_json = r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#;
+        let overlapping = TimeEntry {
+            id: "other".into(),
+            workspace_id: "w1".into(),
+            user_id: Some("u1".into()),
+            project_id: Some("p1".into()),
+            task_id: None,
+            tag_ids: vec![],
+            description: "Other".into(),
+            time_interval: TimeInterval {
+                start: "2026-04-23T09:30:00Z".into(),
+                end: Some("2026-04-23T09:45:00Z".into()),
+                duration: None,
+            },
+        };
+        let list_response =
+            serde_json::to_string(&[running_existing_entry(), overlapping]).unwrap();
+        let (transport, last_method, _) = MockTransport::new(user_json, &list_response, &response);
+        let client = ClockifyClient::new("secret".into(), transport);
+        let mut overlap_ids = Vec::<String>::new();
+
+        let error = update_entry_start_exact(
+            &client,
+            "w1",
+            ExactEntryStartUpdate {
+                entry_id: "e1",
+                start: "2026-04-23T08:45:00+00:00",
+                overlap_end: Some("2026-04-23T10:00:00+00:00"),
+            },
+            |warning| {
+                overlap_ids = warning.overlapping_ids.clone();
+                Ok(false)
+            },
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("aborted due to overlap"));
+        assert_eq!(overlap_ids, vec!["other"]);
+        assert_ne!(last_method.borrow().as_deref(), Some("PUT"));
     }
 
     #[test]

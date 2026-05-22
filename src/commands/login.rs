@@ -17,7 +17,7 @@ pub fn execute(args: &ParsedArgs) -> Result<(), CfdError> {
     let mut reader = stdin.lock();
     let mut writer = stdout.lock();
     let api_key = prompt_api_key(&mut reader, &mut writer)?;
-    let client = ClockifyClient::new(api_key.clone(), UreqTransport);
+    let client = ClockifyClient::new(api_key.clone(), UreqTransport::default());
 
     run_setup_with_io(&mut reader, &mut writer, &client, &api_key, "Saved login.")
 }

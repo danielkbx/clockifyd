@@ -1,17 +1,16 @@
-use std::collections::BTreeSet;
-
 use chrono::Utc;
 use serde::Serialize;
 
 use crate::args::ParsedArgs;
 use crate::client::{ClockifyClient, HttpTransport};
+use crate::commands::overlap;
 use crate::config;
 use crate::datetime;
 use crate::duration;
 use crate::error::CfdError;
 use crate::format::{format_json, format_text_fields, OutputFormat, OutputOptions, TextField};
 use crate::input;
-use crate::types::{EntryFilters, OverlapWarning, StoredConfig, TimeEntry};
+use crate::types::{OverlapWarning, StoredConfig, TimeEntry};
 
 const USAGE: &str =
     "usage: cfd split <entry <id>|timer> --at <time> [--gap <duration>] [--no-rounding] [-y]";
@@ -161,7 +160,7 @@ pub(crate) fn split_entry_at<T: HttpTransport>(
         Some(&original_end),
         Some(entry_id),
     )?;
-    if let Some(warning) = combine_warnings([update_warning, create_warning]) {
+    if let Some(warning) = overlap::combine([update_warning, create_warning]) {
         if !confirm_overlap(&warning)? {
             return Err(CfdError::message("aborted due to overlap"));
         }
@@ -222,7 +221,7 @@ fn split_timer<T: HttpTransport>(
         Some(&current.id),
     )?;
     maybe_confirm_overlap(
-        &combine_warnings([stopped_warning, started_warning]),
+        &overlap::combine([stopped_warning, started_warning]),
         args.yes,
     )?;
 
@@ -331,13 +330,7 @@ fn split_times_from_inputs(
     })
 }
 
-fn parse_rfc3339(
-    label: &str,
-    value: &str,
-) -> Result<chrono::DateTime<chrono::FixedOffset>, CfdError> {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .map_err(|_| CfdError::message(format!("invalid {label}: {value}")))
-}
+use crate::datetime::parse_rfc3339;
 
 fn entry_payload(
     entry: &TimeEntry,
@@ -415,76 +408,11 @@ fn find_overlaps<T: HttpTransport>(
     end: Option<&str>,
     exclude_id: Option<&str>,
 ) -> Result<Option<OverlapWarning>, CfdError> {
-    let entries = client.list_time_entries(workspace_id, user_id, &EntryFilters::default())?;
-    let overlapping_ids = find_overlapping_ids(&entries, start, end, exclude_id)?;
-    if overlapping_ids.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(OverlapWarning { overlapping_ids }))
-    }
-}
-
-fn find_overlapping_ids(
-    entries: &[TimeEntry],
-    start: &str,
-    end: Option<&str>,
-    exclude_id: Option<&str>,
-) -> Result<Vec<String>, CfdError> {
-    let start_dt = parse_rfc3339("start", start)?;
-    let end_dt = end.map(|value| parse_rfc3339("end", value)).transpose()?;
-    let mut overlapping_ids = Vec::new();
-
-    for entry in entries {
-        if exclude_id == Some(entry.id.as_str()) {
-            continue;
-        }
-        let existing_start = parse_rfc3339("existing start", &entry.time_interval.start)?;
-        let existing_end = entry
-            .time_interval
-            .end
-            .as_deref()
-            .map(|value| parse_rfc3339("existing end", value))
-            .transpose()?;
-        let overlaps = match (end_dt, existing_end) {
-            (Some(new_end), Some(existing_end)) => {
-                existing_start < new_end && start_dt < existing_end
-            }
-            (Some(new_end), None) => existing_start < new_end,
-            (None, Some(existing_end)) => start_dt < existing_end,
-            (None, None) => true,
-        };
-        if overlaps {
-            overlapping_ids.push(entry.id.clone());
-        }
-    }
-
-    Ok(overlapping_ids)
-}
-
-fn combine_warnings<const N: usize>(
-    warnings: [Option<OverlapWarning>; N],
-) -> Option<OverlapWarning> {
-    let overlapping_ids = warnings
-        .into_iter()
-        .flatten()
-        .flat_map(|warning| warning.overlapping_ids)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
-    (!overlapping_ids.is_empty()).then_some(OverlapWarning { overlapping_ids })
+    overlap::detect(client, workspace_id, user_id, start, end, exclude_id)
 }
 
 fn maybe_confirm_overlap(warning: &Option<OverlapWarning>, yes: bool) -> Result<(), CfdError> {
-    if let Some(warning) = warning {
-        eprintln!(
-            "warning: overlaps existing entries: {}",
-            warning.overlapping_ids.join(", ")
-        );
-        if !yes && !input::confirm("Continue despite overlap?")? {
-            return Err(CfdError::message("aborted due to overlap"));
-        }
-    }
-    Ok(())
+    overlap::confirm(warning, yes)
 }
 
 fn print_result<T: HttpTransport>(
@@ -649,7 +577,7 @@ mod tests {
 
     #[test]
     fn combine_warnings_deduplicates_ids() {
-        let warning = combine_warnings([
+        let warning = overlap::combine([
             Some(OverlapWarning {
                 overlapping_ids: vec!["b".into(), "a".into()],
             }),
@@ -695,7 +623,7 @@ mod tests {
             },
         ];
 
-        let ids = find_overlapping_ids(
+        let ids = overlap::detect_in(
             &entries,
             "2026-04-23T10:00:00Z",
             Some("2026-04-23T11:00:00Z"),

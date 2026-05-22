@@ -20,10 +20,11 @@ Verify that `cfd timeline` opens a responsive human-only TUI, fills the availabl
 5. Ask the user which project ID to use for disposable `[CFD-TEST]` entries.
 6. Wait for explicit project confirmation.
 7. Ensure no timer is running, or stop the current timer only after explicit user approval.
-8. Create a disposable finished entry for the current day, for example:
+8. Create two disposable finished entries for the current day with a clear gap between them, for example:
 
    ```bash
    cfd entry add --workspace <confirmed-workspace-id> --project <confirmed-project-id> --description "[CFD-TEST] timeline action source" --start <today 09:00> --end <today 10:00> --no-rounding -y
+   cfd entry add --workspace <confirmed-workspace-id> --project <confirmed-project-id> --description "[CFD-TEST] timeline edit blocker" --start <today 11:00> --end <today 12:00> --no-rounding -y
    ```
 
 9. Use a normal interactive terminal at least 80 columns wide and 24 rows tall.
@@ -32,7 +33,7 @@ Verify that `cfd timeline` opens a responsive human-only TUI, fills the availabl
 
 1. Run `cfd timeline --workspace <confirmed-workspace-id>`.
 2. Confirm that the first screen uses all available vertical space for day timelines, with two timeline rows per day and the newest day at the bottom.
-3. Confirm that the top row is a colored shortcut bar with black text and does not contain `cfd timeline`.
+3. Confirm that the top row is a white shortcut bar with black text and does not contain `cfd timeline`.
 4. Confirm that the top row shows navigation, reload, and quit shortcuts, and does not show `p` while no timer is running.
 5. If older visible rows initially show `loading`, wait briefly and confirm they become loaded day rows without restarting the TUI.
 6. Press `←` and `→`, and confirm the cursor moves while loading is in progress or after loading has completed.
@@ -42,24 +43,32 @@ Verify that `cfd timeline` opens a responsive human-only TUI, fills the availabl
 10. Move the cursor into a gap and confirm the bottom shortcut bar is not shown.
 11. Press `n`, `s`, and `d` in the gap and confirm each key beeps and does not start, split, or delete anything.
 12. Move the cursor onto the disposable `[CFD-TEST]` entry.
-13. Confirm that the bottom row appears as a colored shortcut bar with black text, uses the same color as the selected entry block, and shows only valid entry actions.
-14. Confirm that `s` appears only when the cursor is at a valid split position inside the selected entry: at least one rounding step after the entry start and at least one rounding step before the entry end.
-15. Press `s`, answer `y` to any inline overlap confirmation, and confirm the entry splits at the cursor time and the timeline reloads.
-16. During a confirmation prompt, press an unrelated key such as `r` and confirm it beeps without reloading; then answer the prompt.
-17. Move the cursor onto one of the resulting `[CFD-TEST]` entries.
-18. Press `d`, answer `n`, and confirm the entry remains visible.
-19. Press `d`, answer `y`, and confirm the entry disappears after reload.
-20. Move the cursor onto the remaining `[CFD-TEST]` entry with project data.
-21. Press `n`, answer `y` to any inline overlap confirmation, and confirm a running timer appears with the copied project/task/tags/description.
-22. Confirm that the top row now shows `p` for stopping the timer, and that the bottom row on a finished entry still shows `s` but no longer shows `n`.
-23. Press `p`, answer `n`, and confirm the timer continues running.
-24. Press `p`, answer `y`, and confirm the timer stops and the timeline reloads.
-25. Reopen the TUI with `cfd timeline --workspace <confirmed-workspace-id> -y`, start a timer with `n` if needed, press `p`, and confirm the stop confirmation is skipped.
-26. Press `r` and confirm the visible rows reload cleanly.
-27. Press `q` and confirm the terminal exits cleanly.
-28. Stop and delete any remaining `[CFD-TEST]` timer or entry created by this journey.
-29. Run `cfd timeline --workspace <confirmed-workspace-id> --format json`.
-30. Run `cfd timeline --workspace <confirmed-workspace-id> --columns id`.
+13. Confirm that the selected day's two timeline rows use a dark gray background across the full row, including the date and day total; the selected row's left date label, right duration total, and arrow markers remain white; and the bottom row appears as a colored shortcut bar with black text, uses the yellow current-entry highlight background, and shows only valid entry actions.
+14. Confirm that `m`, `a`, and `e` appear only when the selected finished entry can be moved, its start moved, or its end moved by at least one rounding step in either direction. Confirm the bottom bar labels are `m move`, `a move start`, and `e move end`.
+15. Press `m`, confirm the whole entry is highlighted, press `→`, and confirm start and end preview one step later. Press `Esc` and confirm the entry returns to its original time.
+16. Press `a`, confirm the left edge is highlighted, press `→`, and confirm only the start preview moves later. Press `Enter` and confirm the timeline reloads with the shorter entry.
+17. Press `e`, confirm the right edge is highlighted, press `→`, and confirm only the end preview moves later. Press `Enter` and confirm the timeline reloads with the longer entry.
+18. Use `m`, `a`, or `e` to move an edge toward the second `[CFD-TEST]` entry until the next step would overlap. Confirm the blocked step beeps, leaves the preview unchanged, and does not show an inline overlap confirmation.
+19. Confirm that `s` appears only when the cursor is at a valid split position inside the selected entry: at least one rounding step after the entry start and at least one rounding step before the entry end.
+20. Press `s`, answer `y` to any inline overlap confirmation, and confirm the entry splits at the cursor time and the timeline reloads.
+21. During a confirmation prompt, press an unrelated key such as `r` and confirm it beeps without reloading; then answer the prompt.
+22. Move the cursor onto one of the resulting `[CFD-TEST]` entries.
+23. Press `d`, answer `n`, and confirm the entry remains visible.
+24. Press `d`, answer `y`, and confirm the entry disappears after reload.
+25. Move the cursor onto the remaining `[CFD-TEST]` entry with project data.
+26. Press `n`, answer `y` to any inline overlap confirmation, and confirm a running timer appears with the copied project/task/tags/description.
+27. Move the cursor onto the running timer entry. Confirm that the bottom row shows `a move start` when the start can move by at least one rounding step, and does not show `m move`, `e move end`, `s split`, `n start`, or `d delete`.
+28. Press `a`, confirm the left edge is highlighted, press `←` or `→`, and confirm only the start preview moves while the right edge continues to track `now`. Press `Esc` and confirm the timer returns to its original start.
+29. Press `a` again, move the start by one valid step, press `Enter`, and confirm the timeline reloads with the timer still running and the changed start time.
+30. Confirm that the top row now shows `p` for stopping the timer, and that the bottom row on a finished entry still shows `s` but no longer shows `n`.
+31. Press `p`, answer `n`, and confirm the timer continues running.
+32. Press `p`, answer `y`, and confirm the timer stops and the timeline reloads.
+33. Reopen the TUI with `cfd timeline --workspace <confirmed-workspace-id> -y`, start a timer with `n` if needed, press `p`, and confirm the stop confirmation is skipped.
+34. Press `r` and confirm the visible rows reload cleanly.
+35. Press `q` and confirm the terminal exits cleanly.
+36. Stop and delete any remaining `[CFD-TEST]` timer or entry created by this journey.
+37. Run `cfd timeline --workspace <confirmed-workspace-id> --format json`.
+38. Run `cfd timeline --workspace <confirmed-workspace-id> --columns id`.
 
 ## Expected Results
 
@@ -67,9 +76,16 @@ Verify that `cfd timeline` opens a responsive human-only TUI, fills the availabl
 - The date appears on the left and the day total appears on the right.
 - Entry blocks and the vertical cursor render across both rows for each visible day.
 - The first block row shows task or description when it fits, and the second block row shows duration when it fits.
-- The top row is a colored shortcut bar with black text and no `cfd timeline` title.
+- The top row is a white shortcut bar with black text and no `cfd timeline` title.
 - The top row shows only currently available global shortcuts. The `p` shortcut is based on the current running timer status, not only on running entries visible in the loaded timeline rows.
-- The bottom row appears only over entries with valid actions, uses the selected entry color with black text, and is blank over gaps or non-actionable entries.
+- The selected day's two timeline rows use a dark gray background across the full row, including the date and day total; the selected row's left date label, right duration total, and arrow markers remain white.
+- The bottom row appears only over entries with valid actions, uses the yellow current-entry highlight background with black text, and is blank over gaps or non-actionable entries.
+- `m` and `e` appear only for finished loaded entries when at least one cursor-step edit is valid. `a` appears for finished loaded entries and for the running timer entry when the start can move by at least one cursor step.
+- Edit mode highlights the whole entry for move, the left edge for start adjustment, and the right edge for end adjustment.
+- On a running timer entry, only `a move start` is available; moving the start keeps the timer running and leaves the right edge tracking `now`.
+- Edit mode accepts `←` / `→` for previews, `Esc` for cancel, `Enter` for save, and `Ctrl-C` for exit; unrelated keys beep.
+- Invalid edit steps, including overlaps and local-day boundary crossings, beep and leave the preview unchanged.
+- Saved edit previews reload the timeline and persist exact previewed timestamps.
 - The `s` split shortcut appears only for finished entries when the cursor is at a valid split position inside the entry.
 - Hidden shortcuts emit a terminal bell and do not run.
 - Confirmation prompts accept only displayed confirm/cancel shortcuts, with Ctrl-C still available to exit.

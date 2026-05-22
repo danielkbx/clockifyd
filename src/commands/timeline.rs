@@ -17,7 +17,7 @@ use crossterm::{
 
 use crate::args::ParsedArgs;
 use crate::client::{ClockifyClient, HttpTransport};
-use crate::commands::{split, timer};
+use crate::commands::{entry, split, timer};
 use crate::config;
 use crate::error::CfdError;
 use crate::types::{EntryFilters, OverlapWarning, RoundingMode, StoredConfig, TimeEntry};
@@ -30,7 +30,10 @@ const ROWS_PER_DAY: usize = 2;
 const BATCH_DAY_COUNT: usize = 7;
 const LABEL_INSET: usize = 1;
 const LABEL_PAD: usize = 1;
-const SHORTCUT_BAR_COLOR: Color = Color::Yellow;
+const SHORTCUT_BAR_COLOR: Color = Color::White;
+const CURSOR_ENTRY_HIGHLIGHT_COLOR: Color = Color::Yellow;
+const CURSOR_ROW_BACKGROUND: Color = Color::DarkGrey;
+const CURSOR_ROW_FOREGROUND: Color = Color::White;
 
 pub fn execute<T: HttpTransport + Clone + Send + 'static>(
     client: &ClockifyClient<T>,
@@ -75,6 +78,39 @@ fn step_minutes_from_rounding(mode: RoundingMode) -> i64 {
     }
 }
 
+struct TerminalGuard {
+    active: bool,
+}
+
+impl TerminalGuard {
+    fn enter() -> Result<Self, CfdError> {
+        terminal::enable_raw_mode().map_err(io_err)?;
+        let mut out = stdout();
+        if let Err(error) = execute!(out, EnterAlternateScreen, term_cursor::Hide) {
+            let _ = terminal::disable_raw_mode();
+            return Err(io_err(error));
+        }
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = execute!(stdout(), term_cursor::Show, LeaveAlternateScreen);
+            let _ = terminal::disable_raw_mode();
+            prev_hook(info);
+        }));
+        Ok(Self { active: true })
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        let _ = execute!(stdout(), term_cursor::Show, LeaveAlternateScreen);
+        let _ = terminal::disable_raw_mode();
+        let _ = std::panic::take_hook();
+    }
+}
+
 fn run_interactive<T: HttpTransport + Clone + Send + 'static>(
     client: &ClockifyClient<T>,
     workspace_id: &str,
@@ -83,34 +119,26 @@ fn run_interactive<T: HttpTransport + Clone + Send + 'static>(
     no_rounding: bool,
     yes: bool,
 ) -> Result<(), CfdError> {
-    terminal::enable_raw_mode().map_err(io_err)?;
+    let _guard = TerminalGuard::enter()?;
     let mut out = stdout();
-    execute!(out, EnterAlternateScreen, term_cursor::Hide).map_err(io_err)?;
-
-    let result = (|| {
-        let (_, rows) = terminal::size().map_err(io_err)?;
-        let visible_count = compute_visible_days(rows as usize, usize::MAX);
-        let mut state = initial_state(client, workspace_id, visible_count)?;
-        snap_cursor(&mut state, step);
-        let loader = Loader::start(client.clone(), workspace_id.to_string());
-        run_loop(
-            &mut out,
-            client,
-            TimelineRuntime {
-                workspace_id,
-                config,
-                loader: &loader,
-                no_rounding,
-                yes,
-            },
-            &mut state,
-            step,
-        )
-    })();
-
-    execute!(out, term_cursor::Show, LeaveAlternateScreen).ok();
-    terminal::disable_raw_mode().ok();
-    result
+    let (_, rows) = terminal::size().map_err(io_err)?;
+    let visible_count = compute_visible_days(rows as usize, usize::MAX);
+    let mut state = initial_state(client, workspace_id, visible_count)?;
+    snap_cursor(&mut state, step);
+    let loader = Loader::start(client.clone(), workspace_id.to_string());
+    run_loop(
+        &mut out,
+        client,
+        TimelineRuntime {
+            workspace_id,
+            config,
+            loader: &loader,
+            no_rounding,
+            yes,
+        },
+        &mut state,
+        step,
+    )
 }
 
 struct TimelineRuntime<'a> {
@@ -208,6 +236,17 @@ fn run_loop<T: HttpTransport>(
                             runtime.no_rounding,
                             false,
                         )?,
+                        Action::CommitEdit => {
+                            if execute_edit_commit(
+                                client,
+                                runtime.workspace_id,
+                                runtime.config,
+                                state,
+                            )? {
+                                queue!(out, Print('\x07')).map_err(io_err)?;
+                                out.flush().map_err(io_err)?;
+                            }
+                        }
                         Action::StopCurrentTimer => {
                             if runtime.yes {
                                 execute_timeline_action(
@@ -250,7 +289,13 @@ fn run_loop<T: HttpTransport>(
                         | Action::SelectNextDay
                         | Action::JumpStart
                         | Action::JumpEnd
-                        | Action::JumpNow => {}
+                        | Action::JumpNow
+                        | Action::BeginMoveEntry
+                        | Action::BeginAdjustStart
+                        | Action::BeginAdjustEnd
+                        | Action::EditStepLeft
+                        | Action::EditStepRight
+                        | Action::CancelEdit => {}
                     }
                     dirty = true;
                 }
@@ -265,6 +310,7 @@ fn run_loop<T: HttpTransport>(
                 state.refresh_now();
                 let current_minute = state.now_minute();
                 if current_minute != last_running_minute {
+                    recompute_bounds(state);
                     dirty = true;
                 }
             }
@@ -289,6 +335,13 @@ enum Action {
     StartTimerFromCursorEntry,
     SplitCursorEntry,
     DeleteCursorEntry,
+    BeginMoveEntry,
+    BeginAdjustStart,
+    BeginAdjustEnd,
+    EditStepLeft,
+    EditStepRight,
+    CommitEdit,
+    CancelEdit,
     StopCurrentTimer,
     ConfirmYes,
     ConfirmNo,
@@ -325,6 +378,45 @@ fn handle_key(key: KeyEvent, state: &mut TimelineState, step: i64, cols: usize) 
         }
         Action::MoveCursorRight => {
             state.move_cursor(step);
+            Action::Redraw
+        }
+        Action::BeginMoveEntry => {
+            if state.start_edit(EditMode::Move) {
+                Action::Redraw
+            } else {
+                Action::Beep
+            }
+        }
+        Action::BeginAdjustStart => {
+            if state.start_edit(EditMode::Start) {
+                Action::Redraw
+            } else {
+                Action::Beep
+            }
+        }
+        Action::BeginAdjustEnd => {
+            if state.start_edit(EditMode::End) {
+                Action::Redraw
+            } else {
+                Action::Beep
+            }
+        }
+        Action::EditStepLeft => {
+            if state.apply_edit_step(-step) {
+                Action::Redraw
+            } else {
+                Action::Beep
+            }
+        }
+        Action::EditStepRight => {
+            if state.apply_edit_step(step) {
+                Action::Redraw
+            } else {
+                Action::Beep
+            }
+        }
+        Action::CancelEdit => {
+            state.cancel_edit();
             Action::Redraw
         }
         Action::SelectPreviousDay => {
@@ -370,6 +462,9 @@ fn action_for_key(key: KeyEvent, segments: &[ShortcutSegment]) -> Option<Action>
 
 fn action_for_shortcut_key(segment: &ShortcutSegment, key: KeyEvent) -> Action {
     match segment.key {
+        "←/→" if matches!(key.code, KeyCode::Right) && segment.action == Action::EditStepLeft => {
+            Action::EditStepRight
+        }
         "←/→" if matches!(key.code, KeyCode::Right) => Action::MoveCursorRight,
         "↑/↓" if matches!(key.code, KeyCode::Down) => Action::SelectNextDay,
         "Home/End" if matches!(key.code, KeyCode::End) => Action::JumpEnd,
@@ -394,6 +489,8 @@ fn shortcut_matches_key(shortcut: &str, key: KeyEvent) -> bool {
             key.code,
             KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter
         ),
+        "Enter" => matches!(key.code, KeyCode::Enter),
+        "Esc" => matches!(key.code, KeyCode::Esc),
         "n/Esc" => matches!(
             key.code,
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc
@@ -640,6 +737,115 @@ fn confirm_or_capture_overlap(
     }
 }
 
+fn execute_edit_commit<T: HttpTransport>(
+    client: &ClockifyClient<T>,
+    workspace_id: &str,
+    config_state: &StoredConfig,
+    state: &mut TimelineState,
+) -> Result<bool, CfdError> {
+    let Some(session) = state.edit.clone() else {
+        return Ok(false);
+    };
+    if edit_session_is_noop(&session) {
+        state.edit = None;
+        state.set_message("No changes.");
+        return Ok(false);
+    }
+
+    let start = minute_timestamp(session.date, session.draft_start_minute);
+    let end_minute = edit_effective_end_minute(state, &session);
+    let end = minute_timestamp(session.date, end_minute);
+    let mut overlap_ids = Vec::new();
+    let result = if session.running {
+        entry::update_entry_start_exact(
+            client,
+            workspace_id,
+            entry::ExactEntryStartUpdate {
+                entry_id: &session.entry_id,
+                start: &start,
+                overlap_end: Some(&end),
+            },
+            |warning| {
+                overlap_ids = warning.overlapping_ids.clone();
+                Ok(false)
+            },
+        )
+    } else {
+        entry::update_entry_times_exact(
+            client,
+            workspace_id,
+            entry::ExactEntryTimeUpdate {
+                entry_id: &session.entry_id,
+                start: &start,
+                end: &end,
+            },
+            |warning| {
+                overlap_ids = warning.overlapping_ids.clone();
+                Ok(false)
+            },
+        )
+    };
+
+    match result {
+        Ok(updated) => {
+            update_active_switch_start_if_needed(config_state, workspace_id, &updated.id, &start)?;
+            state.edit = None;
+            reload_day_state(
+                client,
+                workspace_id,
+                state,
+                session.date,
+                Some(format!("Updated entry {}.", updated.id)),
+            )?;
+        }
+        Err(error) if !overlap_ids.is_empty() => {
+            state.set_message(format!(
+                "Edit would overlap existing entries: {}.",
+                overlap_ids.join(", ")
+            ));
+            let _ = error;
+            return Ok(true);
+        }
+        Err(error) => {
+            state.set_message(format_timeline_error(error));
+        }
+    }
+    Ok(false)
+}
+
+fn edit_session_is_noop(session: &EditSession) -> bool {
+    session.draft_start_minute == session.original_start_minute
+        && (session.running || session.draft_end_minute == session.original_end_minute)
+}
+
+fn update_active_switch_start_if_needed(
+    config_state: &StoredConfig,
+    workspace_id: &str,
+    entry_id: &str,
+    start: &str,
+) -> Result<(), CfdError> {
+    let Some(active_switch) = config_state.active_switch.as_ref() else {
+        return Ok(());
+    };
+    if active_switch.workspace_id != workspace_id || active_switch.switched_entry_id != entry_id {
+        return Ok(());
+    }
+    if let Some(next_config) = config_with_updated_active_switch_start(config_state, start) {
+        config::save_config(&next_config)?;
+    }
+    Ok(())
+}
+
+fn config_with_updated_active_switch_start(
+    config_state: &StoredConfig,
+    start: &str,
+) -> Option<StoredConfig> {
+    let mut next_config = config_state.clone();
+    let active_switch = next_config.active_switch.as_mut()?;
+    active_switch.switched_start = start.to_owned();
+    Some(next_config)
+}
+
 fn selected_loaded_entry(state: &mut TimelineState) -> Option<&EntryView> {
     if state.selected().load_status != DayLoadStatus::Loaded {
         state.set_message("No loaded entry at cursor.");
@@ -661,8 +867,12 @@ fn find_entry_view<'a>(state: &'a TimelineState, entry_id: &str) -> Option<&'a E
 }
 
 fn cursor_timestamp(state: &TimelineState) -> Result<String, CfdError> {
-    let day_start = local_at(state.selected().date, 0, 0);
-    Ok((day_start + Duration::minutes(state.cursor_minute)).to_rfc3339())
+    Ok(minute_timestamp(state.selected().date, state.cursor_minute))
+}
+
+fn minute_timestamp(date: NaiveDate, minute: i64) -> String {
+    let day_start = local_at(date, 0, 0);
+    (day_start + Duration::minutes(minute)).to_rfc3339()
 }
 
 fn reload_state<T: HttpTransport>(
@@ -680,6 +890,26 @@ fn reload_state<T: HttpTransport>(
     state.generation = next_generation;
     state.cursor_minute = preserved_cursor.clamp(state.start_minute, state.end_minute);
     preserve_selected_date(state, preserved_date);
+    if let Some(message) = message {
+        state.set_message(message);
+    }
+    Ok(())
+}
+
+fn reload_day_state<T: HttpTransport>(
+    client: &ClockifyClient<T>,
+    workspace_id: &str,
+    state: &mut TimelineState,
+    date: NaiveDate,
+    message: Option<String>,
+) -> Result<(), CfdError> {
+    let preserved_cursor = state.cursor_minute;
+    let preserved_date = state.selected().date;
+    let loaded_days = fetch_range(client, workspace_id, date, 1, Utc::now())?;
+    merge_days(&mut state.days, loaded_days);
+    preserve_selected_date(state, preserved_date);
+    recompute_bounds(state);
+    state.cursor_minute = preserved_cursor.clamp(state.start_minute, state.end_minute);
     if let Some(message) = message {
         state.set_message(message);
     }
@@ -745,6 +975,7 @@ struct TimelineState {
     current_timer_id: Option<String>,
     loading: LoadingState,
     interaction: InteractionState,
+    edit: Option<EditSession>,
     generation: u64,
 }
 
@@ -775,7 +1006,12 @@ impl TimelineState {
     }
 
     fn selected(&self) -> &DayView {
-        &self.days[self.selected_day]
+        debug_assert!(
+            !self.days.is_empty(),
+            "TimelineState.days must never be empty"
+        );
+        let idx = self.selected_day.min(self.days.len().saturating_sub(1));
+        &self.days[idx]
     }
 
     fn has_running_timer(&self) -> bool {
@@ -807,6 +1043,80 @@ impl TimelineState {
             InteractionState::Idle { message } => message.clone(),
         };
         self.interaction = InteractionState::Idle { message };
+    }
+
+    fn start_edit(&mut self, mode: EditMode) -> bool {
+        if self.edit.is_some() || self.selected().load_status != DayLoadStatus::Loaded {
+            return false;
+        }
+        let Some(entry) = entry_at_cursor(self).cloned() else {
+            return false;
+        };
+        if entry.running && mode != EditMode::Start {
+            return false;
+        }
+        let end_minute = if entry.running {
+            self.now_minute().max(entry.start_minute)
+        } else {
+            entry.end_minute
+        };
+        let session = EditSession {
+            entry_id: entry.id,
+            date: self.selected().date,
+            mode,
+            running: entry.running,
+            original_start_minute: entry.start_minute,
+            original_end_minute: end_minute,
+            draft_start_minute: entry.start_minute,
+            draft_end_minute: end_minute,
+            original_cursor_minute: self.cursor_minute,
+        };
+        self.cursor_minute = match mode {
+            EditMode::Move => self.cursor_minute,
+            EditMode::Start => session.draft_start_minute,
+            EditMode::End => session.draft_end_minute,
+        };
+        self.edit = Some(session);
+        self.interaction = InteractionState::Idle { message: None };
+        true
+    }
+
+    fn apply_edit_step(&mut self, delta: i64) -> bool {
+        let step = if delta < 0 { -delta } else { delta }.max(1);
+        let Some(session) = self.edit.clone() else {
+            return false;
+        };
+        let delta = if delta < 0 { -step } else { step };
+        let (draft_start, draft_end) = edit_candidate(
+            session.mode,
+            session.draft_start_minute,
+            edit_effective_end_minute(self, &session),
+            delta,
+        );
+        if !edit_interval_is_valid(self, &session, draft_start, draft_end) {
+            return false;
+        }
+        let Some(edit) = &mut self.edit else {
+            return false;
+        };
+        edit.draft_start_minute = draft_start;
+        edit.draft_end_minute = draft_end;
+        self.cursor_minute = match edit.mode {
+            EditMode::Move => {
+                (self.cursor_minute + delta).clamp(self.start_minute, self.end_minute)
+            }
+            EditMode::Start => draft_start,
+            EditMode::End => draft_end,
+        };
+        self.interaction = InteractionState::Idle { message: None };
+        true
+    }
+
+    fn cancel_edit(&mut self) {
+        if let Some(session) = self.edit.take() {
+            self.cursor_minute = session.original_cursor_minute;
+        }
+        self.interaction = InteractionState::Idle { message: None };
     }
 }
 
@@ -845,6 +1155,109 @@ impl InteractionState {
             Self::Idle { message } => message.as_deref(),
             Self::Confirm { prompt, .. } => Some(prompt.as_str()),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EditMode {
+    Move,
+    Start,
+    End,
+}
+
+#[derive(Debug, Clone)]
+struct EditSession {
+    entry_id: String,
+    date: NaiveDate,
+    mode: EditMode,
+    running: bool,
+    original_start_minute: i64,
+    original_end_minute: i64,
+    draft_start_minute: i64,
+    draft_end_minute: i64,
+    original_cursor_minute: i64,
+}
+
+fn edit_candidate(mode: EditMode, start: i64, end: i64, delta: i64) -> (i64, i64) {
+    match mode {
+        EditMode::Move => (start + delta, end + delta),
+        EditMode::Start => (start + delta, end),
+        EditMode::End => (start, end + delta),
+    }
+}
+
+fn edit_interval_is_valid(
+    state: &TimelineState,
+    session: &EditSession,
+    start: i64,
+    end: i64,
+) -> bool {
+    if start < 0 || end > 24 * 60 || end <= start {
+        return false;
+    }
+    if session.running && (session.mode != EditMode::Start || end != state.now_minute()) {
+        return false;
+    }
+    let Some(day) = state.days.iter().find(|day| day.date == session.date) else {
+        return false;
+    };
+    if day.load_status != DayLoadStatus::Loaded {
+        return false;
+    }
+    !day.entries
+        .iter()
+        .filter(|entry| entry.id != session.entry_id)
+        .any(|entry| {
+            let (entry_start, entry_end) = entry_display_interval_for_day(state, day.date, entry);
+            entry_start < end && start < entry_end
+        })
+}
+
+fn edit_action_available(
+    state: &TimelineState,
+    entry: &EntryView,
+    mode: EditMode,
+    step: i64,
+) -> bool {
+    if entry.running && mode != EditMode::Start {
+        return false;
+    }
+    let step = step.max(1);
+    let session = EditSession {
+        entry_id: entry.id.clone(),
+        date: state.selected().date,
+        mode,
+        running: entry.running,
+        original_start_minute: entry.start_minute,
+        original_end_minute: if entry.running {
+            state.now_minute().max(entry.start_minute)
+        } else {
+            entry.end_minute
+        },
+        draft_start_minute: entry.start_minute,
+        draft_end_minute: if entry.running {
+            state.now_minute().max(entry.start_minute)
+        } else {
+            entry.end_minute
+        },
+        original_cursor_minute: state.cursor_minute,
+    };
+    [-step, step].into_iter().any(|delta| {
+        let (start, end) = edit_candidate(
+            mode,
+            entry.start_minute,
+            edit_effective_end_minute(state, &session),
+            delta,
+        );
+        edit_interval_is_valid(state, &session, start, end)
+    })
+}
+
+fn edit_effective_end_minute(state: &TimelineState, session: &EditSession) -> i64 {
+    if session.running {
+        state.now_minute().max(session.draft_start_minute)
+    } else {
+        session.draft_end_minute
     }
 }
 
@@ -1020,6 +1433,7 @@ fn initial_state<T: HttpTransport>(
             last_error: None,
         },
         interaction: InteractionState::default(),
+        edit: None,
         generation: 0,
     })
 }
@@ -1391,7 +1805,7 @@ fn draw(
         .collect();
     let total_labels: Vec<String> = visible_days
         .iter()
-        .map(|(_, day)| day_total_label(day))
+        .map(|(_, day)| day_total_label(state, day))
         .collect();
     let date_width = date_labels
         .iter()
@@ -1431,29 +1845,32 @@ fn draw(
         let i = visible_idx;
         let day_idx = *day_idx;
         let marker = if is_selected { "▶ " } else { "  " };
-        clear_row(out, day_row, cols)?;
-        clear_row(out, bar_row, cols)?;
-        queue!(out, term_cursor::MoveTo(0, day_row), Print(marker)).map_err(io_err)?;
-        if is_selected {
-            queue!(out, SetAttribute(Attribute::Bold)).map_err(io_err)?;
-        }
-        queue!(out, Print(format!("{:<date_width$}", date_labels[i]))).map_err(io_err)?;
-        if is_selected {
-            queue!(out, SetAttribute(Attribute::Reset)).map_err(io_err)?;
-        }
+        let row_background = day_row_background(state, day_idx);
+        let row_foreground = day_row_foreground(state, day_idx);
+        clear_row_with_background(out, day_row, cols, row_background)?;
+        clear_row_with_background(out, bar_row, cols, row_background)?;
+        queue!(out, term_cursor::MoveTo(0, day_row)).map_err(io_err)?;
+        print_row_text(out, marker, row_background, row_foreground, false)?;
+        print_row_text(
+            out,
+            &format!("{:<date_width$}", date_labels[i]),
+            row_background,
+            row_foreground,
+            is_selected,
+        )?;
 
         let total_chars = total_labels[i].chars().count();
         let total_col = u16::try_from(cols - marker_width - total_chars).unwrap_or(0);
         queue!(out, term_cursor::MoveTo(total_col, day_row)).map_err(io_err)?;
-        if is_selected {
-            queue!(out, SetAttribute(Attribute::Bold)).map_err(io_err)?;
-        }
-        queue!(out, Print(&total_labels[i])).map_err(io_err)?;
-        if is_selected {
-            queue!(out, SetAttribute(Attribute::Reset)).map_err(io_err)?;
-        }
+        print_row_text(
+            out,
+            &total_labels[i],
+            row_background,
+            row_foreground,
+            is_selected,
+        )?;
         let right_marker = if is_selected { " ◀" } else { "  " };
-        queue!(out, Print(right_marker)).map_err(io_err)?;
+        print_row_text(out, right_marker, row_background, row_foreground, false)?;
 
         for block in compute_blocks(state, day_idx, bar_cols) {
             draw_block(out, &block, block.label.as_deref(), day_row, bar_offset)?;
@@ -1535,13 +1952,48 @@ fn draw(
 }
 
 fn clear_row(out: &mut Stdout, row: u16, cols: usize) -> Result<(), CfdError> {
+    clear_row_with_background(out, row, cols, None)
+}
+
+fn clear_row_with_background(
+    out: &mut Stdout,
+    row: u16,
+    cols: usize,
+    background: Option<Color>,
+) -> Result<(), CfdError> {
+    queue!(out, ResetColor, SetAttribute(Attribute::Reset)).map_err(io_err)?;
+    if let Some(background) = background {
+        queue!(out, SetBackgroundColor(background)).map_err(io_err)?;
+    }
     queue!(
         out,
         term_cursor::MoveTo(0, row),
         Print(" ".repeat(cols)),
+        ResetColor,
+        SetAttribute(Attribute::Reset),
         term_cursor::MoveTo(0, row)
     )
     .map_err(io_err)
+}
+
+fn print_row_text(
+    out: &mut Stdout,
+    text: &str,
+    background: Option<Color>,
+    foreground: Option<Color>,
+    bold: bool,
+) -> Result<(), CfdError> {
+    queue!(out, ResetColor, SetAttribute(Attribute::Reset)).map_err(io_err)?;
+    if let Some(background) = background {
+        queue!(out, SetBackgroundColor(background)).map_err(io_err)?;
+    }
+    if let Some(foreground) = foreground {
+        queue!(out, SetForegroundColor(foreground)).map_err(io_err)?;
+    }
+    if bold {
+        queue!(out, SetAttribute(Attribute::Bold)).map_err(io_err)?;
+    }
+    queue!(out, Print(text), ResetColor, SetAttribute(Attribute::Reset)).map_err(io_err)
 }
 
 fn draw_shortcut_bar(
@@ -1623,6 +2075,29 @@ fn raw_top_shortcuts(state: &TimelineState) -> Vec<ShortcutSegment> {
             label: "quit",
             action: Action::Quit,
         }]
+    } else if state.edit.is_some() {
+        vec![
+            ShortcutSegment {
+                key: "←/→",
+                label: "adjust",
+                action: Action::EditStepLeft,
+            },
+            ShortcutSegment {
+                key: "Enter",
+                label: "save",
+                action: Action::CommitEdit,
+            },
+            ShortcutSegment {
+                key: "Esc",
+                label: "cancel",
+                action: Action::CancelEdit,
+            },
+            ShortcutSegment {
+                key: "Ctrl-C",
+                label: "quit",
+                action: Action::Quit,
+            },
+        ]
     } else {
         let mut segments = vec![
             ShortcutSegment {
@@ -1674,6 +2149,8 @@ fn bottom_shortcuts(state: &TimelineState, cols: usize, step: i64) -> Vec<Shortc
 fn raw_bottom_shortcuts(state: &TimelineState, step: i64) -> Vec<ShortcutSegment> {
     if state.interaction.is_confirming() {
         raw_confirmation_shortcuts()
+    } else if state.edit.is_some() {
+        Vec::new()
     } else {
         raw_entry_shortcuts(state, step)
     }
@@ -1687,11 +2164,42 @@ fn raw_entry_shortcuts(state: &TimelineState, step: i64) -> Vec<ShortcutSegment>
     let Some(entry) = entry_at_cursor(state) else {
         return Vec::new();
     };
-    if state.selected().load_status != DayLoadStatus::Loaded || entry.running {
+    if state.selected().load_status != DayLoadStatus::Loaded {
         return Vec::new();
     }
 
     let mut segments = Vec::new();
+    if entry.running {
+        if edit_action_available(state, entry, EditMode::Start, step) {
+            segments.push(ShortcutSegment {
+                key: "a",
+                label: "move start",
+                action: Action::BeginAdjustStart,
+            });
+        }
+        return segments;
+    }
+    if edit_action_available(state, entry, EditMode::Move, step) {
+        segments.push(ShortcutSegment {
+            key: "m",
+            label: "move",
+            action: Action::BeginMoveEntry,
+        });
+    }
+    if edit_action_available(state, entry, EditMode::Start, step) {
+        segments.push(ShortcutSegment {
+            key: "a",
+            label: "move start",
+            action: Action::BeginAdjustStart,
+        });
+    }
+    if edit_action_available(state, entry, EditMode::End, step) {
+        segments.push(ShortcutSegment {
+            key: "e",
+            label: "move end",
+            action: Action::BeginAdjustEnd,
+        });
+    }
     if entry_can_split_at_cursor(entry, state.cursor_minute, step) {
         segments.push(ShortcutSegment {
             key: "s",
@@ -1738,17 +2246,41 @@ fn raw_confirmation_shortcuts() -> Vec<ShortcutSegment> {
     ]
 }
 
-fn bottom_shortcut_color(state: &TimelineState) -> Color {
-    entry_at_cursor(state)
-        .map(entry_color)
-        .unwrap_or(SHORTCUT_BAR_COLOR)
+fn bottom_shortcut_color(_state: &TimelineState) -> Color {
+    CURSOR_ENTRY_HIGHLIGHT_COLOR
 }
 
-fn day_total_label(day: &DayView) -> String {
+fn day_row_background(state: &TimelineState, day_idx: usize) -> Option<Color> {
+    if day_idx == state.selected_day {
+        Some(CURSOR_ROW_BACKGROUND)
+    } else {
+        None
+    }
+}
+
+fn day_row_foreground(state: &TimelineState, day_idx: usize) -> Option<Color> {
+    if day_idx == state.selected_day {
+        Some(CURSOR_ROW_FOREGROUND)
+    } else {
+        None
+    }
+}
+
+fn day_total_label(state: &TimelineState, day: &DayView) -> String {
     match day.load_status {
         DayLoadStatus::Loading => "loading".into(),
         DayLoadStatus::Failed => "error".into(),
-        DayLoadStatus::Loaded => format_duration_minutes(day.total_minutes),
+        DayLoadStatus::Loaded => {
+            let total = day
+                .entries
+                .iter()
+                .map(|entry| {
+                    let (start, end) = entry_display_interval_for_day(state, day.date, entry);
+                    (end - start).max(0)
+                })
+                .sum();
+            format_duration_minutes(total)
+        }
     }
 }
 
@@ -1776,7 +2308,16 @@ struct BlockRender {
     label: Option<String>,
     duration_label: Option<String>,
     running: bool,
-    highlighted: bool,
+    highlight: BlockHighlight,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BlockHighlight {
+    None,
+    Cursor,
+    EditMove,
+    EditStart,
+    EditEnd,
 }
 
 const ENTRY_PALETTE: &[Color] = &[
@@ -1819,8 +2360,8 @@ fn compute_blocks(state: &TimelineState, day_idx: usize, cols: usize) -> Vec<Blo
     let is_selected = day_idx == state.selected_day;
     let cursor_idx = if is_selected {
         day.entries.iter().position(|entry| {
-            state.cursor_minute >= entry.start_minute
-                && state.cursor_minute < entry.end_minute.max(entry.start_minute + 1)
+            let (start, end) = entry_display_interval_for_day(state, day.date, entry);
+            state.cursor_minute >= start && state.cursor_minute < end.max(start + 1)
         })
     } else {
         None
@@ -1830,8 +2371,10 @@ fn compute_blocks(state: &TimelineState, day_idx: usize, cols: usize) -> Vec<Blo
         .iter()
         .enumerate()
         .filter_map(|(idx, entry)| {
-            let start_col = col_at_minute(entry.start_minute, state, cols);
-            let end_col = col_at_minute(entry.end_minute, state, cols)
+            let (start_minute, end_minute, highlight) =
+                block_interval_and_highlight(state, day, entry, cursor_idx == Some(idx));
+            let start_col = col_at_minute(start_minute, state, cols);
+            let end_col = col_at_minute(end_minute, state, cols)
                 .max(start_col + 1)
                 .min(cols);
             let width = end_col.saturating_sub(start_col);
@@ -1839,7 +2382,7 @@ fn compute_blocks(state: &TimelineState, day_idx: usize, cols: usize) -> Vec<Blo
                 return None;
             }
             let label = block_label(entry, width);
-            let duration_label = block_duration_label(entry, width);
+            let duration_label = block_duration_label(start_minute, end_minute, width);
             Some(BlockRender {
                 start_col,
                 width,
@@ -1848,10 +2391,35 @@ fn compute_blocks(state: &TimelineState, day_idx: usize, cols: usize) -> Vec<Blo
                 label,
                 duration_label,
                 running: entry.running,
-                highlighted: cursor_idx == Some(idx),
+                highlight,
             })
         })
         .collect()
+}
+
+fn block_interval_and_highlight(
+    state: &TimelineState,
+    day: &DayView,
+    entry: &EntryView,
+    cursor_highlighted: bool,
+) -> (i64, i64, BlockHighlight) {
+    if let Some(edit) = &state.edit {
+        if edit.date == day.date && edit.entry_id == entry.id {
+            let highlight = match edit.mode {
+                EditMode::Move => BlockHighlight::EditMove,
+                EditMode::Start => BlockHighlight::EditStart,
+                EditMode::End => BlockHighlight::EditEnd,
+            };
+            return (edit.draft_start_minute, edit.draft_end_minute, highlight);
+        }
+    }
+    let (start, end) = entry_display_interval_for_day(state, day.date, entry);
+    let highlight = if cursor_highlighted {
+        BlockHighlight::Cursor
+    } else {
+        BlockHighlight::None
+    };
+    (start, end, highlight)
 }
 
 fn block_label(entry: &EntryView, width: usize) -> Option<String> {
@@ -1874,8 +2442,8 @@ fn block_label(entry: &EntryView, width: usize) -> Option<String> {
     Some(truncate_to(source, max_label))
 }
 
-fn block_duration_label(entry: &EntryView, width: usize) -> Option<String> {
-    let duration = format_duration_minutes((entry.end_minute - entry.start_minute).max(0));
+fn block_duration_label(start_minute: i64, end_minute: i64, width: usize) -> Option<String> {
+    let duration = format_duration_minutes((end_minute - start_minute).max(0));
     block_text_label(&duration, width)
 }
 
@@ -1919,6 +2487,7 @@ fn draw_block(
 
     if segment == 0 {
         emit_shade(out, block, block.width, block.running)?;
+        emit_edit_edge(out, block, bar_row, bar_offset)?;
         return Ok(());
     }
 
@@ -1930,8 +2499,8 @@ fn draw_block(
         pad = " ".repeat(LABEL_PAD),
         label = label
     );
-    let label_color = if block.highlighted {
-        Color::Yellow
+    let label_color = if block_whole_highlighted(block) {
+        CURSOR_ENTRY_HIGHLIGHT_COLOR
     } else {
         block.color
     };
@@ -1946,6 +2515,42 @@ fn draw_block(
     .map_err(io_err)?;
 
     emit_shade(out, block, right, block.running)?;
+    emit_edit_edge(out, block, bar_row, bar_offset)?;
+    Ok(())
+}
+
+fn block_whole_highlighted(block: &BlockRender) -> bool {
+    matches!(
+        block.highlight,
+        BlockHighlight::Cursor | BlockHighlight::EditMove
+    )
+}
+
+fn emit_edit_edge(
+    out: &mut Stdout,
+    block: &BlockRender,
+    bar_row: u16,
+    bar_offset: usize,
+) -> Result<(), CfdError> {
+    let Some(edge_offset) = (match block.highlight {
+        BlockHighlight::EditStart => Some(0),
+        BlockHighlight::EditEnd => Some(block.width.saturating_sub(1)),
+        _ => None,
+    }) else {
+        return Ok(());
+    };
+    let col = u16::try_from(bar_offset + block.start_col + edge_offset).unwrap_or(0);
+    queue!(
+        out,
+        term_cursor::MoveTo(col, bar_row),
+        SetForegroundColor(CURSOR_ENTRY_HIGHLIGHT_COLOR),
+        SetAttribute(Attribute::Bold),
+        SetAttribute(Attribute::Reverse),
+        Print(block.shade),
+        SetAttribute(Attribute::Reset),
+        ResetColor
+    )
+    .map_err(io_err)?;
     Ok(())
 }
 
@@ -1958,10 +2563,10 @@ fn emit_shade(
     if count == 0 {
         return Ok(());
     }
-    if block.highlighted {
+    if block_whole_highlighted(block) {
         queue!(
             out,
-            SetForegroundColor(Color::Yellow),
+            SetForegroundColor(CURSOR_ENTRY_HIGHLIGHT_COLOR),
             SetAttribute(Attribute::Bold)
         )
         .map_err(io_err)?;
@@ -2037,11 +2642,12 @@ fn render_legend(state: &TimelineState, cols: usize) -> Vec<String> {
 
     match entry {
         Some(entry) => {
-            let duration_minutes = (entry.end_minute - entry.start_minute).max(0);
+            let (display_start, display_end) = entry_display_interval(state, entry);
+            let duration_minutes = (display_end - display_start).max(0);
             let time_label = format!(
                 "{}–{}{}",
-                minute_to_label(entry.start_minute),
-                minute_to_label(entry.end_minute),
+                minute_to_label(display_start),
+                minute_to_label(display_end),
                 if entry.running { " (running)" } else { "" }
             );
             let duration_label = format_duration_minutes(duration_minutes);
@@ -2076,6 +2682,13 @@ fn render_legend(state: &TimelineState, cols: usize) -> Vec<String> {
         }
     }
 
+    if let Some(edit_line) = edit_status_line(state) {
+        if lines.len() >= LEGEND_HEIGHT as usize {
+            lines.truncate(LEGEND_HEIGHT as usize - 1);
+        }
+        lines.push(truncate_to(&edit_line, cols));
+    }
+
     if let Some(line) = state.interaction.line() {
         if lines.len() >= LEGEND_HEIGHT as usize {
             lines.truncate(LEGEND_HEIGHT as usize - 1);
@@ -2086,11 +2699,57 @@ fn render_legend(state: &TimelineState, cols: usize) -> Vec<String> {
     lines
 }
 
+fn entry_display_interval(state: &TimelineState, entry: &EntryView) -> (i64, i64) {
+    entry_display_interval_for_day(state, state.selected().date, entry)
+}
+
+fn entry_display_interval_for_day(
+    state: &TimelineState,
+    date: NaiveDate,
+    entry: &EntryView,
+) -> (i64, i64) {
+    if let Some(edit) = &state.edit {
+        if edit.date == date && edit.entry_id == entry.id {
+            return (
+                edit.draft_start_minute,
+                edit_effective_end_minute(state, edit),
+            );
+        }
+    }
+    if entry.running && date == state.now.with_timezone(&Local).date_naive() {
+        return (
+            entry.start_minute,
+            state.now_minute().max(entry.start_minute),
+        );
+    }
+    (entry.start_minute, entry.end_minute)
+}
+
+fn edit_status_line(state: &TimelineState) -> Option<String> {
+    let edit = state.edit.as_ref()?;
+    let mode = match edit.mode {
+        EditMode::Move => "move",
+        EditMode::Start => "start",
+        EditMode::End => "end",
+    };
+    Some(format!(
+        "Editing {mode}: {}-{}. Enter saves; Esc cancels.",
+        minute_to_label(edit.draft_start_minute),
+        minute_to_label(edit_effective_end_minute(state, edit))
+    ))
+}
+
 fn entry_at_cursor(state: &TimelineState) -> Option<&EntryView> {
     let day = state.selected();
+    if let Some(edit) = &state.edit {
+        if edit.date == day.date {
+            return day.entries.iter().find(|entry| entry.id == edit.entry_id);
+        }
+    }
     let minute = state.cursor_minute;
     day.entries.iter().find(|entry| {
-        minute >= entry.start_minute && minute < entry.end_minute.max(entry.start_minute + 1)
+        let (start, end) = entry_display_interval_for_day(state, day.date, entry);
+        minute >= start && minute < end.max(start + 1)
     })
 }
 
@@ -2149,7 +2808,7 @@ fn format_duration_minutes(minutes: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::TimeInterval;
+    use crate::types::{StoredSwitch, StoredTimerFields, TimeInterval};
 
     fn day_view(date: NaiveDate, entries: Vec<EntryView>) -> DayView {
         let total = entries
@@ -2185,6 +2844,7 @@ mod tests {
             current_timer_id: None,
             loading: loading_state(date),
             interaction: InteractionState::default(),
+            edit: None,
             generation: 0,
         }
     }
@@ -2203,6 +2863,7 @@ mod tests {
             current_timer_id: None,
             loading: loading_state(oldest),
             interaction: InteractionState::default(),
+            edit: None,
             generation: 0,
         }
     }
@@ -2219,6 +2880,16 @@ mod tests {
             end_minute: end,
             running: false,
         }
+    }
+
+    fn running_view(id: &str, start: i64, now: i64) -> EntryView {
+        let mut entry = view(id, start, now);
+        entry.running = true;
+        entry
+    }
+
+    fn set_now(state: &mut TimelineState, hour: u32, minute: u32) {
+        state.now = local_at(state.selected().date, hour, minute).with_timezone(&Utc);
     }
 
     fn test_loader() -> (Loader, Receiver<LoaderRequest>) {
@@ -2332,6 +3003,7 @@ mod tests {
             current_timer_id: None,
             loading: loading_state(date - Duration::days(1)),
             interaction: InteractionState::default(),
+            edit: None,
             generation: 0,
         };
         assert_eq!(entry_at_cursor(&state).map(|e| e.id.as_str()), Some("a"));
@@ -2415,12 +3087,13 @@ mod tests {
             current_timer_id: None,
             loading: loading_state(date - Duration::days(1)),
             interaction: InteractionState::default(),
+            edit: None,
             generation: 0,
         };
         let other = compute_blocks(&state, 0, 80);
-        assert!(!other[0].highlighted, "non-selected day must not highlight");
+        assert_eq!(other[0].highlight, BlockHighlight::None);
         let selected = compute_blocks(&state, 1, 80);
-        assert!(selected[0].highlighted);
+        assert_eq!(selected[0].highlight, BlockHighlight::Cursor);
     }
 
     #[test]
@@ -2552,6 +3225,37 @@ mod tests {
     }
 
     #[test]
+    fn running_entry_rendering_uses_current_minute() {
+        let date = NaiveDate::from_ymd_opt(2026, 5, 7).unwrap();
+        let mut running = view("running", 9 * 60, 10 * 60);
+        running.running = true;
+        let mut state = state_with(8 * 60, 18 * 60, vec![running]);
+        state.now = local_at(date, 10, 5).with_timezone(&Utc);
+        state.cursor_minute = 9 * 60 + 30;
+
+        let blocks = compute_blocks(&state, 0, 120);
+        let legend = render_legend(&state, 120).join("\n");
+
+        assert_eq!(blocks[0].duration_label.as_deref(), Some("1h 5m"));
+        assert_eq!(day_total_label(&state, state.selected()), "1h 5m");
+        assert!(legend.contains("Time: 09:00–10:05 (running)"));
+        assert!(legend.contains("Duration: 1h 5m"));
+    }
+
+    #[test]
+    fn recompute_bounds_extends_axis_for_running_timer_minute_tick() {
+        let date = NaiveDate::from_ymd_opt(2026, 5, 7).unwrap();
+        let mut running = view("running", 17 * 60, 18 * 60);
+        running.running = true;
+        let mut state = state_with(8 * 60, 18 * 60, vec![running]);
+        state.now = local_at(date, 18, 5).with_timezone(&Utc);
+
+        recompute_bounds(&mut state);
+
+        assert_eq!(state.end_minute, 18 * 60 + 5);
+    }
+
+    #[test]
     fn entry_shortcuts_require_loaded_entry_under_cursor() {
         let mut state = state_with(8 * 60, 18 * 60, vec![view("a", 9 * 60, 10 * 60)]);
         state.cursor_minute = 8 * 60 + 10;
@@ -2563,7 +3267,7 @@ mod tests {
                 .into_iter()
                 .map(|segment| segment.key)
                 .collect::<Vec<_>>(),
-            vec!["s", "n", "d"]
+            vec!["m", "a", "e", "s", "n", "d"]
         );
 
         state.days[0].load_status = DayLoadStatus::Loading;
@@ -2586,7 +3290,7 @@ mod tests {
                 .into_iter()
                 .map(|segment| segment.key)
                 .collect::<Vec<_>>(),
-            vec!["s", "d"]
+            vec!["m", "a", "e", "s", "d"]
         );
     }
 
@@ -2623,7 +3327,7 @@ mod tests {
                 .into_iter()
                 .map(|segment| segment.key)
                 .collect::<Vec<_>>(),
-            vec!["n", "d"]
+            vec!["m", "a", "e", "n", "d"]
         );
         assert_eq!(
             handle_key(
@@ -2642,7 +3346,7 @@ mod tests {
                 .into_iter()
                 .map(|segment| segment.key)
                 .collect::<Vec<_>>(),
-            vec!["s", "n", "d"]
+            vec!["m", "a", "e", "s", "n", "d"]
         );
 
         let mut ten_minute = state_with(8 * 60, 18 * 60, vec![view("ten", 9 * 60, 9 * 60 + 10)]);
@@ -2663,7 +3367,7 @@ mod tests {
                 .into_iter()
                 .map(|segment| segment.key)
                 .collect::<Vec<_>>(),
-            vec!["s", "d"]
+            vec!["m", "a", "e", "s", "d"]
         );
 
         state.days[0].entries[0].project_id = Some("p1".into());
@@ -2673,12 +3377,12 @@ mod tests {
                 .into_iter()
                 .map(|segment| segment.key)
                 .collect::<Vec<_>>(),
-            vec!["s", "d"]
+            vec!["m", "a", "e", "s", "d"]
         );
     }
 
     #[test]
-    fn context_shortcuts_hide_for_loading_failed_gap_and_running_entry() {
+    fn context_shortcuts_hide_for_loading_failed_and_gap_but_show_running_start_edit() {
         let mut state = state_with(8 * 60, 18 * 60, vec![view("a", 9 * 60, 10 * 60)]);
         state.cursor_minute = 8 * 60 + 30;
         assert!(bottom_shortcuts(&state, 120, 15).is_empty());
@@ -2692,27 +3396,103 @@ mod tests {
 
         state.days[0].load_status = DayLoadStatus::Loaded;
         state.days[0].entries[0].running = true;
-        assert!(bottom_shortcuts(&state, 120, 15).is_empty());
+        set_now(&mut state, 10, 0);
+        assert_eq!(
+            bottom_shortcuts(&state, 120, 15)
+                .into_iter()
+                .map(|segment| (segment.key, segment.label))
+                .collect::<Vec<_>>(),
+            vec![("a", "move start")]
+        );
     }
 
     #[test]
-    fn entry_shortcuts_hide_all_actions_for_running_entry() {
+    fn entry_shortcuts_show_only_move_start_for_running_entry() {
         let mut running = view("running", 9 * 60, 10 * 60);
         running.running = true;
         let mut state = state_with(8 * 60, 18 * 60, vec![running]);
+        set_now(&mut state, 10, 0);
         state.cursor_minute = 9 * 60 + 10;
-        assert!(entry_shortcuts(&state, 120, 15).is_empty());
-        assert!(bottom_shortcuts(&state, 120, 15).is_empty());
+        assert_eq!(
+            entry_shortcuts(&state, 120, 15)
+                .into_iter()
+                .map(|segment| (segment.key, segment.label))
+                .collect::<Vec<_>>(),
+            vec![("a", "move start")]
+        );
+        assert_eq!(
+            bottom_shortcuts(&state, 120, 15)
+                .into_iter()
+                .map(|segment| (segment.key, segment.label))
+                .collect::<Vec<_>>(),
+            vec![("a", "move start")]
+        );
     }
 
     #[test]
-    fn bottom_shortcut_color_matches_entry_under_cursor() {
+    fn bottom_shortcut_color_uses_cursor_entry_highlight_color() {
         let mut state = state_with(8 * 60, 18 * 60, vec![view("a", 9 * 60, 10 * 60)]);
         state.cursor_minute = 9 * 60 + 10;
-        assert_eq!(
-            bottom_shortcut_color(&state),
-            entry_color(entry_at_cursor(&state).unwrap())
+        assert_ne!(
+            entry_color(entry_at_cursor(&state).unwrap()),
+            CURSOR_ENTRY_HIGHLIGHT_COLOR
         );
+        assert_eq!(bottom_shortcut_color(&state), CURSOR_ENTRY_HIGHLIGHT_COLOR);
+    }
+
+    #[test]
+    fn day_row_background_marks_selected_day_only() {
+        let date = NaiveDate::from_ymd_opt(2026, 5, 7).unwrap();
+        let state = TimelineState {
+            days: vec![
+                day_view(date - Duration::days(1), vec![view("y", 540, 600)]),
+                day_view(date, vec![view("a", 540, 600)]),
+            ],
+            selected_day: 1,
+            viewport_top: 0,
+            start_minute: 8 * 60,
+            end_minute: 18 * 60,
+            cursor_minute: 9 * 60 + 10,
+            now: Utc::now(),
+            current_timer_id: None,
+            loading: loading_state(date - Duration::days(1)),
+            interaction: InteractionState::default(),
+            edit: None,
+            generation: 0,
+        };
+
+        assert_eq!(day_row_background(&state, 0), None);
+        assert_eq!(day_row_background(&state, 1), Some(CURSOR_ROW_BACKGROUND));
+    }
+
+    #[test]
+    fn day_row_foreground_marks_selected_day_white_only() {
+        let date = NaiveDate::from_ymd_opt(2026, 5, 7).unwrap();
+        let state = TimelineState {
+            days: vec![
+                day_view(date - Duration::days(1), vec![view("y", 540, 600)]),
+                day_view(date, vec![view("a", 540, 600)]),
+            ],
+            selected_day: 1,
+            viewport_top: 0,
+            start_minute: 8 * 60,
+            end_minute: 18 * 60,
+            cursor_minute: 9 * 60 + 10,
+            now: Utc::now(),
+            current_timer_id: None,
+            loading: loading_state(date - Duration::days(1)),
+            interaction: InteractionState::default(),
+            edit: None,
+            generation: 0,
+        };
+
+        assert_eq!(day_row_foreground(&state, 0), None);
+        assert_eq!(day_row_foreground(&state, 1), Some(CURSOR_ROW_FOREGROUND));
+    }
+
+    #[test]
+    fn top_shortcut_bar_uses_white_background() {
+        assert_eq!(SHORTCUT_BAR_COLOR, Color::White);
     }
 
     #[test]
@@ -2740,6 +3520,48 @@ mod tests {
         state.cursor_minute = 9 * 60 + 15;
         assert_eq!(
             handle_key(
+                KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE),
+                &mut state,
+                15,
+                120
+            ),
+            Action::Redraw
+        );
+        assert_eq!(
+            state.edit.as_ref().map(|edit| edit.mode),
+            Some(EditMode::Move)
+        );
+        state.cancel_edit();
+        assert_eq!(
+            handle_key(
+                KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+                &mut state,
+                15,
+                120
+            ),
+            Action::Redraw
+        );
+        assert_eq!(
+            state.edit.as_ref().map(|edit| edit.mode),
+            Some(EditMode::Start)
+        );
+        state.cancel_edit();
+        assert_eq!(
+            handle_key(
+                KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+                &mut state,
+                15,
+                120
+            ),
+            Action::Redraw
+        );
+        assert_eq!(
+            state.edit.as_ref().map(|edit| edit.mode),
+            Some(EditMode::End)
+        );
+        state.cancel_edit();
+        assert_eq!(
+            handle_key(
                 KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
                 &mut state,
                 15,
@@ -2764,6 +3586,347 @@ mod tests {
                 120
             ),
             Action::DeleteCursorEntry
+        );
+    }
+
+    #[test]
+    fn edit_shortcuts_follow_candidate_validity() {
+        let mut state = state_with(
+            0,
+            24 * 60,
+            vec![
+                view("left", 8 * 60, 9 * 60),
+                view("edit", 9 * 60, 10 * 60),
+                view("right", 10 * 60, 11 * 60),
+            ],
+        );
+        state.cursor_minute = 9 * 60 + 15;
+
+        let keys = entry_shortcuts(&state, 120, 15)
+            .into_iter()
+            .map(|segment| segment.key)
+            .collect::<Vec<_>>();
+
+        assert!(!keys.contains(&"m"), "move is blocked on both sides");
+        assert!(keys.contains(&"a"), "start can still move inward");
+        assert!(keys.contains(&"e"), "end can still move inward");
+    }
+
+    #[test]
+    fn edit_shortcut_labels_use_move_start_and_move_end() {
+        let mut state = state_with(8 * 60, 18 * 60, vec![view("edit", 9 * 60, 10 * 60)]);
+        state.cursor_minute = 9 * 60 + 15;
+
+        let labels = entry_shortcuts(&state, 120, 15)
+            .into_iter()
+            .map(|segment| (segment.key, segment.label))
+            .collect::<Vec<_>>();
+
+        assert!(labels.contains(&("m", "move")));
+        assert!(labels.contains(&("a", "move start")));
+        assert!(labels.contains(&("e", "move end")));
+    }
+
+    #[test]
+    fn running_entry_only_exposes_move_start_shortcut() {
+        let mut state = state_with(
+            8 * 60,
+            18 * 60,
+            vec![running_view("running", 9 * 60, 10 * 60)],
+        );
+        set_now(&mut state, 10, 0);
+        state.current_timer_id = Some("running".into());
+        state.cursor_minute = 9 * 60 + 15;
+
+        let shortcuts = entry_shortcuts(&state, 120, 15)
+            .into_iter()
+            .map(|segment| (segment.key, segment.label))
+            .collect::<Vec<_>>();
+
+        assert_eq!(shortcuts, vec![("a", "move start")]);
+        assert_eq!(
+            handle_key(
+                KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+                &mut state,
+                15,
+                120,
+            ),
+            Action::Redraw
+        );
+        assert_eq!(
+            state.edit.as_ref().map(|edit| (edit.mode, edit.running)),
+            Some((EditMode::Start, true))
+        );
+        state.cancel_edit();
+
+        assert_eq!(
+            handle_key(
+                KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE),
+                &mut state,
+                15,
+                120,
+            ),
+            Action::Beep
+        );
+        assert_eq!(
+            handle_key(
+                KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+                &mut state,
+                15,
+                120,
+            ),
+            Action::Beep
+        );
+    }
+
+    #[test]
+    fn edit_steps_update_move_start_and_end_drafts() {
+        let mut move_state = state_with(8 * 60, 18 * 60, vec![view("edit", 9 * 60, 10 * 60)]);
+        move_state.cursor_minute = 9 * 60 + 15;
+        assert!(move_state.start_edit(EditMode::Move));
+        assert!(move_state.apply_edit_step(15));
+        let edit = move_state.edit.as_ref().unwrap();
+        assert_eq!(edit.draft_start_minute, 9 * 60 + 15);
+        assert_eq!(edit.draft_end_minute, 10 * 60 + 15);
+        assert_eq!(move_state.cursor_minute, 9 * 60 + 30);
+
+        let mut start_state = state_with(8 * 60, 18 * 60, vec![view("edit", 9 * 60, 10 * 60)]);
+        start_state.cursor_minute = 9 * 60 + 15;
+        assert!(start_state.start_edit(EditMode::Start));
+        assert!(start_state.apply_edit_step(15));
+        let edit = start_state.edit.as_ref().unwrap();
+        assert_eq!(edit.draft_start_minute, 9 * 60 + 15);
+        assert_eq!(edit.draft_end_minute, 10 * 60);
+        assert_eq!(start_state.cursor_minute, 9 * 60 + 15);
+
+        let mut end_state = state_with(8 * 60, 18 * 60, vec![view("edit", 9 * 60, 10 * 60)]);
+        end_state.cursor_minute = 9 * 60 + 15;
+        assert!(end_state.start_edit(EditMode::End));
+        assert!(end_state.apply_edit_step(-15));
+        let edit = end_state.edit.as_ref().unwrap();
+        assert_eq!(edit.draft_start_minute, 9 * 60);
+        assert_eq!(edit.draft_end_minute, 10 * 60 - 15);
+        assert_eq!(end_state.cursor_minute, 10 * 60 - 15);
+    }
+
+    #[test]
+    fn edit_steps_block_overlap_invalid_duration_and_day_bounds() {
+        let mut overlap = state_with(
+            8 * 60,
+            18 * 60,
+            vec![
+                view("edit", 9 * 60, 10 * 60),
+                view("neighbor", 10 * 60, 11 * 60),
+            ],
+        );
+        overlap.cursor_minute = 9 * 60 + 15;
+        assert!(overlap.start_edit(EditMode::Move));
+        assert!(!overlap.apply_edit_step(15));
+        let edit = overlap.edit.as_ref().unwrap();
+        assert_eq!(edit.draft_start_minute, 9 * 60);
+        assert_eq!(edit.draft_end_minute, 10 * 60);
+
+        let mut invalid_duration =
+            state_with(8 * 60, 18 * 60, vec![view("edit", 9 * 60, 9 * 60 + 15)]);
+        invalid_duration.cursor_minute = 9 * 60 + 5;
+        assert!(invalid_duration.start_edit(EditMode::Start));
+        assert!(!invalid_duration.apply_edit_step(15));
+
+        let mut bounds = state_with(0, 24 * 60, vec![view("edit", 0, 30)]);
+        bounds.cursor_minute = 10;
+        assert!(bounds.start_edit(EditMode::Move));
+        assert!(!bounds.apply_edit_step(-15));
+    }
+
+    #[test]
+    fn running_start_edit_blocks_now_day_bounds_and_overlaps() {
+        let mut reaches_now = state_with(
+            8 * 60,
+            18 * 60,
+            vec![running_view("running", 9 * 60 + 45, 10 * 60)],
+        );
+        set_now(&mut reaches_now, 10, 0);
+        reaches_now.cursor_minute = 9 * 60 + 50;
+        assert!(reaches_now.start_edit(EditMode::Start));
+        assert!(!reaches_now.apply_edit_step(15));
+        assert_eq!(
+            reaches_now.edit.as_ref().unwrap().draft_start_minute,
+            9 * 60 + 45
+        );
+
+        let mut bounds = state_with(0, 18 * 60, vec![running_view("running", 5, 60)]);
+        set_now(&mut bounds, 1, 0);
+        bounds.cursor_minute = 10;
+        assert!(bounds.start_edit(EditMode::Start));
+        assert!(!bounds.apply_edit_step(-15));
+        assert_eq!(bounds.edit.as_ref().unwrap().draft_start_minute, 5);
+
+        let mut overlap = state_with(
+            0,
+            18 * 60,
+            vec![
+                view("neighbor", 8 * 60 + 45, 9 * 60),
+                running_view("running", 9 * 60, 10 * 60),
+            ],
+        );
+        set_now(&mut overlap, 10, 0);
+        overlap.cursor_minute = 9 * 60 + 10;
+        assert!(overlap.start_edit(EditMode::Start));
+        assert!(!overlap.apply_edit_step(-15));
+        assert_eq!(overlap.edit.as_ref().unwrap().draft_start_minute, 9 * 60);
+    }
+
+    #[test]
+    fn edit_cancel_restores_cursor_and_enter_without_changes_exits() {
+        let mut state = state_with(8 * 60, 18 * 60, vec![view("edit", 9 * 60, 10 * 60)]);
+        state.cursor_minute = 9 * 60 + 15;
+        assert!(state.start_edit(EditMode::End));
+        assert_eq!(state.cursor_minute, 10 * 60);
+        state.cancel_edit();
+        assert!(state.edit.is_none());
+        assert_eq!(state.cursor_minute, 9 * 60 + 15);
+
+        assert!(state.start_edit(EditMode::Move));
+        let client = ClockifyClient::new("secret".into(), NoopTransport);
+        assert!(!execute_edit_commit(&client, "w1", &StoredConfig::default(), &mut state).unwrap());
+        assert!(state.edit.is_none());
+        assert_eq!(state.interaction.line(), Some("No changes."));
+    }
+
+    #[test]
+    fn compute_blocks_uses_edit_draft_and_highlight() {
+        let mut state = state_with(8 * 60, 18 * 60, vec![view("edit", 9 * 60, 10 * 60)]);
+        state.cursor_minute = 9 * 60 + 15;
+        assert!(state.start_edit(EditMode::Move));
+        assert!(state.apply_edit_step(15));
+
+        let blocks = compute_blocks(&state, 0, 100);
+
+        assert_eq!(blocks[0].start_col, col_at_minute(9 * 60 + 15, &state, 100));
+        assert_eq!(blocks[0].highlight, BlockHighlight::EditMove);
+    }
+
+    #[test]
+    fn running_start_edit_uses_dynamic_now_for_blocks_and_legend() {
+        let mut state = state_with(
+            8 * 60,
+            18 * 60,
+            vec![running_view("running", 9 * 60, 10 * 60)],
+        );
+        set_now(&mut state, 10, 0);
+        state.cursor_minute = 9 * 60 + 10;
+        assert!(state.start_edit(EditMode::Start));
+        assert!(state.apply_edit_step(-15));
+
+        let blocks = compute_blocks(&state, 0, 100);
+        assert_eq!(blocks[0].start_col, col_at_minute(8 * 60 + 45, &state, 100));
+        assert_eq!(blocks[0].highlight, BlockHighlight::EditStart);
+
+        let legend = render_legend(&state, 120).join("\n");
+        assert!(legend.contains("Time: 08:45–10:00 (running)"));
+        assert!(legend.contains("Duration: 1h 15m"));
+
+        set_now(&mut state, 10, 15);
+        let legend = render_legend(&state, 120).join("\n");
+        assert!(legend.contains("Time: 08:45–10:15 (running)"));
+        assert!(legend.contains("Duration: 1h 30m"));
+    }
+
+    #[test]
+    fn active_switch_start_update_changes_switched_start_only() {
+        let config = StoredConfig {
+            active_switch: Some(StoredSwitch {
+                workspace_id: "w1".into(),
+                user_id: "u1".into(),
+                original_entry_id: "original".into(),
+                switched_entry_id: "running".into(),
+                switched_start: "2026-05-07T09:00:00Z".into(),
+                return_start: Some("2026-05-07T08:00:00Z".into()),
+                return_to: StoredTimerFields {
+                    project_id: "p1".into(),
+                    task_id: Some("t1".into()),
+                    tag_ids: vec!["tag1".into()],
+                    description: Some("Return".into()),
+                },
+            }),
+            ..StoredConfig::default()
+        };
+
+        let updated =
+            config_with_updated_active_switch_start(&config, "2026-05-07T08:45:00Z").unwrap();
+        let active_switch = updated.active_switch.unwrap();
+
+        assert_eq!(active_switch.switched_start, "2026-05-07T08:45:00Z");
+        assert_eq!(active_switch.switched_entry_id, "running");
+        assert_eq!(active_switch.return_to.project_id, "p1");
+    }
+
+    #[test]
+    fn legend_uses_edit_draft_time_and_duration() {
+        let mut state = state_with(8 * 60, 18 * 60, vec![view("edit", 9 * 60, 10 * 60)]);
+        state.cursor_minute = 9 * 60 + 15;
+        assert!(state.start_edit(EditMode::Move));
+        assert!(state.apply_edit_step(15));
+
+        let legend = render_legend(&state, 120).join("\n");
+
+        assert!(legend.contains("Time: 09:15–10:15"));
+        assert!(legend.contains("Duration: 1h"));
+    }
+
+    #[test]
+    fn edit_mode_accepts_only_edit_keys_and_ctrl_c() {
+        let mut state = state_with(8 * 60, 18 * 60, vec![view("edit", 9 * 60, 10 * 60)]);
+        state.cursor_minute = 9 * 60 + 15;
+        assert!(state.start_edit(EditMode::Move));
+
+        assert_eq!(
+            handle_key(
+                KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+                &mut state,
+                15,
+                120,
+            ),
+            Action::Redraw
+        );
+        assert_eq!(
+            handle_key(
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                &mut state,
+                15,
+                120,
+            ),
+            Action::CommitEdit
+        );
+        assert_eq!(
+            handle_key(
+                KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+                &mut state,
+                15,
+                120,
+            ),
+            Action::Beep
+        );
+        assert_eq!(
+            handle_key(
+                KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+                &mut state,
+                15,
+                120,
+            ),
+            Action::Redraw
+        );
+        assert!(state.edit.is_none());
+
+        assert!(state.start_edit(EditMode::Move));
+        assert_eq!(
+            handle_key(
+                KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                &mut state,
+                15,
+                120,
+            ),
+            Action::Quit
         );
     }
 

@@ -7,7 +7,7 @@ use crate::commands::timer::{self, TimerStartFields};
 use crate::config;
 use crate::datetime;
 use crate::error::CfdError;
-use crate::format::{format_json, OutputFormat, OutputOptions};
+use crate::format::{format_json, format_resource_id, OutputFormat, OutputOptions};
 use crate::types::{StoredConfig, StoredSwitch, StoredTimerFields, TimeEntry};
 
 const USAGE: &str = "usage: cfd switch <current|start|stop>";
@@ -125,7 +125,7 @@ fn start<T: HttpTransport>(
     });
     config::save_config(&next_config)?;
 
-    println!("{}", switched.id);
+    println!("{}", format_resource_id(&switched.id));
     Ok(())
 }
 

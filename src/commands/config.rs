@@ -55,7 +55,7 @@ fn show_config() -> Result<(), CfdError> {
 fn interactive_setup() -> Result<(), CfdError> {
     let config = get_config()?;
     let api_key = resolve_api_key(&config)?;
-    let client = ClockifyClient::new(api_key.clone(), UreqTransport);
+    let client = ClockifyClient::new(api_key.clone(), UreqTransport::default());
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut reader = stdin.lock();

@@ -1,9 +1,15 @@
 #![allow(dead_code)]
 
+use std::time::Duration;
+
+use ureq::Agent;
+
 use crate::error::CfdError;
 use crate::types::{Client, EntryFilters, Project, Tag, Task, TimeEntry, User, Workspace};
 
 const BASE_URL: &str = "https://api.clockify.me/api/v1";
+const RESPONSE_BODY_LIMIT: u64 = 16 * 1024 * 1024;
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub trait HttpTransport {
     fn get(&self, url: &str, api_key: &str) -> Result<String, CfdError>;
@@ -14,62 +20,89 @@ pub trait HttpTransport {
 }
 
 #[derive(Clone)]
-pub struct UreqTransport;
+pub struct UreqTransport {
+    agent: Agent,
+}
+
+impl UreqTransport {
+    pub fn new() -> Self {
+        let config = Agent::config_builder()
+            .timeout_global(Some(REQUEST_TIMEOUT))
+            .max_redirects(0)
+            .max_redirects_will_error(true)
+            .http_status_as_error(true)
+            .build();
+        Self {
+            agent: Agent::new_with_config(config),
+        }
+    }
+
+    fn read_body(
+        response: &mut ureq::http::Response<ureq::Body>,
+        api_key: &str,
+    ) -> Result<String, CfdError> {
+        response
+            .body_mut()
+            .with_config()
+            .limit(RESPONSE_BODY_LIMIT)
+            .read_to_string()
+            .map_err(|error| CfdError::transport(redact_secret(&error.to_string(), api_key)))
+    }
+}
+
+impl Default for UreqTransport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl HttpTransport for UreqTransport {
     fn get(&self, url: &str, api_key: &str) -> Result<String, CfdError> {
-        let mut response = ureq::get(url)
+        let mut response = self
+            .agent
+            .get(url)
             .header("X-Api-Key", api_key)
             .call()
             .map_err(|error| map_ureq_error(error, api_key))?;
-
-        response
-            .body_mut()
-            .read_to_string()
-            .map_err(|error| CfdError::transport(redact_secret(&error.to_string(), api_key)))
+        Self::read_body(&mut response, api_key)
     }
 
     fn post(&self, url: &str, api_key: &str, body: &str) -> Result<String, CfdError> {
-        let mut response = ureq::post(url)
+        let mut response = self
+            .agent
+            .post(url)
             .header("X-Api-Key", api_key)
             .header("Content-Type", "application/json")
             .send(body)
             .map_err(|error| map_ureq_error(error, api_key))?;
-
-        response
-            .body_mut()
-            .read_to_string()
-            .map_err(|error| CfdError::transport(redact_secret(&error.to_string(), api_key)))
+        Self::read_body(&mut response, api_key)
     }
 
     fn put(&self, url: &str, api_key: &str, body: &str) -> Result<String, CfdError> {
-        let mut response = ureq::put(url)
+        let mut response = self
+            .agent
+            .put(url)
             .header("X-Api-Key", api_key)
             .header("Content-Type", "application/json")
             .send(body)
             .map_err(|error| map_ureq_error(error, api_key))?;
-
-        response
-            .body_mut()
-            .read_to_string()
-            .map_err(|error| CfdError::transport(redact_secret(&error.to_string(), api_key)))
+        Self::read_body(&mut response, api_key)
     }
 
     fn patch(&self, url: &str, api_key: &str, body: &str) -> Result<String, CfdError> {
-        let mut response = ureq::patch(url)
+        let mut response = self
+            .agent
+            .patch(url)
             .header("X-Api-Key", api_key)
             .header("Content-Type", "application/json")
             .send(body)
             .map_err(|error| map_ureq_error(error, api_key))?;
-
-        response
-            .body_mut()
-            .read_to_string()
-            .map_err(|error| CfdError::transport(redact_secret(&error.to_string(), api_key)))
+        Self::read_body(&mut response, api_key)
     }
 
     fn delete(&self, url: &str, api_key: &str) -> Result<(), CfdError> {
-        ureq::delete(url)
+        self.agent
+            .delete(url)
             .header("X-Api-Key", api_key)
             .call()
             .map_err(|error| map_ureq_error(error, api_key))?;
@@ -89,7 +122,7 @@ impl<T: HttpTransport> ClockifyClient<T> {
         let base_url = std::env::var("CFD_BASE_URL")
             .ok()
             .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty())
+            .filter(|value| is_safe_base_url(value.as_str()))
             .unwrap_or_else(|| BASE_URL.to_string());
         Self::with_base_url(api_key, base_url, transport)
     }
@@ -328,6 +361,11 @@ fn redact_error(error: CfdError, api_key: &str) -> CfdError {
         CfdError::Message(message) => CfdError::message(redact_secret(&message, api_key)),
         other => other,
     }
+}
+
+fn is_safe_base_url(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
 }
 
 fn redact_secret(message: &str, secret: &str) -> String {

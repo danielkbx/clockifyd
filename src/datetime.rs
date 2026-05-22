@@ -24,9 +24,15 @@ pub fn local_week_bounds(week_start: WeekStart) -> Result<(String, String), CfdE
 }
 
 pub fn round_timestamp(value: &str, mode: RoundingMode) -> Result<String, CfdError> {
-    let parsed = chrono::DateTime::parse_from_rfc3339(value)
-        .map_err(|_| CfdError::message(format!("invalid timestamp: {value}")))?;
+    let parsed = parse_rfc3339("timestamp", value)?;
     Ok(round_datetime(parsed.with_timezone(&Utc), mode).to_rfc3339())
+}
+
+/// Parses an RFC3339 timestamp and produces a labelled `invalid <label>: <value>`
+/// error on failure.
+pub fn parse_rfc3339(label: &str, value: &str) -> Result<DateTime<chrono::FixedOffset>, CfdError> {
+    DateTime::parse_from_rfc3339(value)
+        .map_err(|_| CfdError::message(format!("invalid {label}: {value}")))
 }
 
 pub fn resolve_and_round_timestamp(

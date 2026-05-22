@@ -515,18 +515,23 @@ visible days, whichever is earlier) to 18:00 (or the last entry's end /
 current time, whichever is later). Each entry is drawn as a scaled block
 on both rows of its day's bar across the terminal width. The first block
 row shows the task or description when it fits; the second shows duration.
-A vertical cursor highlights one column across both rows; details for the
-selected day's block under the cursor are shown in a two-column legend
-below the time axis.
+A vertical cursor highlights one column across both rows. The selected day's
+two timeline rows use a dark gray background, and details for the selected
+day's block under the cursor are shown in a two-column legend below the time
+axis.
 
 Keys:
   The top bar shows currently available global shortcuts for navigation,
   reload, quit, and stopping a running timer.
   The bottom bar appears only when the cursor is over an entry with available
-  actions. It uses the selected entry's color and shows entry actions such as
-  start timer, split, and delete.
+  actions. It uses the yellow current-entry highlight background and shows
+  entry actions such as move, move start/end, start timer, split, and delete.
   Split is shown only when the cursor is at least one cursor step after the
   entry start and at least one cursor step before the entry end.
+  Move/edit shortcuts are shown only for finished loaded entries when at least
+  one cursor-step adjustment is valid. In edit mode, Left/Right previews the
+  change, Enter saves exact preview times, and Esc cancels. Edit conflicts are
+  blocked with a bell; they do not prompt for overlap confirmation.
   Shortcuts that are not shown are ignored and emit a terminal bell.
   Inline confirmations show only confirm/cancel choices; other keys are
   ignored with a bell except Ctrl-C, which exits.
@@ -535,7 +540,8 @@ The cursor step matches the configured rounding (1m / 5m / 10m / 15m).
 With rounding off, the step defaults to 15 minutes.
 Entry actions use inline confirmations inside the TUI. Timer start, timer
 stop, and split still respect configured rounding, --no-rounding, and
-overlap warnings.
+overlap warnings. Timeline editing uses the same cursor step for movement and
+saves the exact previewed timestamps.
 
 Notes:
   Requires an interactive terminal (TTY); pipes and CI are rejected.

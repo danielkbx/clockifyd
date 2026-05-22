@@ -119,13 +119,13 @@ fn run() -> Result<(), error::CfdError> {
         ("whoami", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::whoami::execute(&client, &args.output)
         }
         ("workspace", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::workspace::execute(&client, &args)
         }
         ("config", _, _) => commands::config::execute(&args),
@@ -134,97 +134,97 @@ fn run() -> Result<(), error::CfdError> {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::project::execute(&client, &args, &workspace_id)
         }
         ("client", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::client::execute(&client, &args, &workspace_id)
         }
         ("tag", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::tag::execute(&client, &args, &workspace_id)
         }
         ("task", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::task::execute(&client, &args, &workspace_id, &config)
         }
         ("entry", Some("text"), Some("list")) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::entry::execute(&client, &args, &workspace_id, &config)
         }
         ("entry", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::entry::execute(&client, &args, &workspace_id, &config)
         }
         ("today", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::today::execute(&client, &args, &workspace_id)
         }
         ("timeline", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::timeline::execute(&client, &args, &workspace_id, &config)
         }
         ("status", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::status::execute(&client, &args, &workspace_id, &config)
         }
         ("split", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::split::execute(&client, &args, &workspace_id, &config)
         }
         ("switch", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::switch::execute(&client, &args, &workspace_id, &config)
         }
         ("timer", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::timer::execute(&client, &args, &workspace_id, &config)
         }
         ("alias", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             commands::alias::execute(&client, &args, &workspace_id, &args.output)
         }
         ("skill", _, _) => {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             let workspace_id = commands::skill::workspace_ref(&args)?;
             let workspace = workspace_id
                 .map(|workspace_id| client.get_workspace(workspace_id))
@@ -244,7 +244,7 @@ fn run() -> Result<(), error::CfdError> {
             let config = config::get_config()?;
             let api_key = config::resolve_api_key(&config)?;
             let workspace_id = config::resolve_workspace(args.workspace.as_deref(), &config)?;
-            let client = client::ClockifyClient::new(api_key, client::UreqTransport);
+            let client = client::ClockifyClient::new(api_key, client::UreqTransport::default());
             match action {
                 Some("start") => commands::alias::execute_runtime_start(
                     &client,
