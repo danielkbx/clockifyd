@@ -10,7 +10,7 @@ The documented update payload for `PUT /v1/workspaces/{workspaceId}/time-entries
 
 ## Clockify API: Pagination naming is endpoint-specific
 Date: 2026-04-23
-Clockify documentation is not fully uniform in query parameter naming. Use the documented parameter names for each endpoint exactly as shown.
+Clockify documentation is not fully uniform in query parameter naming. Use the documented parameter names for each endpoint exactly as shown. Current-user time entries (`GET /workspaces/{workspaceId}/user/{userId}/time-entries`) use `page` and `page-size`; commands that need complete time-entry lists must page through that endpoint instead of relying on Clockify's default first page.
 
 ## Clockify API: tagIds may be null
 Date: 2026-04-23

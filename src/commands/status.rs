@@ -40,7 +40,7 @@ pub fn execute<T: HttpTransport>(
         .into_iter()
         .filter(|entry| entry.user_id.as_deref() == Some(user.id.as_str()))
         .collect::<Vec<_>>();
-    let today_entries = client.list_time_entries(
+    let today_entries = client.list_all_time_entries(
         workspace_id,
         &user.id,
         &EntryFilters {
@@ -49,7 +49,7 @@ pub fn execute<T: HttpTransport>(
             ..EntryFilters::default()
         },
     )?;
-    let week_entries = client.list_time_entries(
+    let week_entries = client.list_all_time_entries(
         workspace_id,
         &user.id,
         &EntryFilters {

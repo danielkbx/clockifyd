@@ -59,7 +59,7 @@ fn list_entries<T: HttpTransport>(
     )?;
     let user = client.get_current_user()?;
     let entries = sort_entries(
-        client.list_time_entries(workspace_id, &user.id, &filters)?,
+        client.list_all_time_entries(workspace_id, &user.id, &filters)?,
         sort,
     )?;
 
@@ -284,15 +284,18 @@ where
         }
     }
 
-    let entries = client.list_time_entries(workspace_id, &user.id, &EntryFilters::default())?;
-    let overlapping_ids = overlap::detect_in(
-        &entries,
+    let overlapping_ids = overlap::detect(
+        client,
+        workspace_id,
+        &user.id,
         request.start,
         request
             .overlap_end
             .or(existing.time_interval.end.as_deref()),
         Some(request.entry_id),
-    )?;
+    )?
+    .map(|warning| warning.overlapping_ids)
+    .unwrap_or_default();
     if !overlapping_ids.is_empty() {
         let warning = OverlapWarning { overlapping_ids };
         if !confirm_overlap(&warning)? {
@@ -333,7 +336,7 @@ fn list_entry_texts<T: HttpTransport>(
     let columns = parse_entry_text_columns(args.flags.get("columns").map(String::as_str))?;
     let project_id = resolve_entry_text_project(args, config_state)?;
     let user = client.get_current_user()?;
-    let entries = client.list_time_entries(
+    let entries = client.list_all_time_entries(
         workspace_id,
         &user.id,
         &EntryFilters {

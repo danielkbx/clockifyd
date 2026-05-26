@@ -204,7 +204,7 @@ fn select_resume_fields<T: HttpTransport>(
     options: ResumeOptions,
 ) -> Result<TimerStartFields, CfdError> {
     let mut entries = client
-        .list_time_entries(workspace_id, user_id, &EntryFilters::default())?
+        .list_recent_time_entries(workspace_id, user_id, &EntryFilters::default())?
         .into_iter()
         .filter(|entry| entry.project_id.is_some())
         .collect::<Vec<_>>();

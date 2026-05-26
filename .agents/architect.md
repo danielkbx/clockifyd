@@ -175,6 +175,8 @@ Clockify API endpoints used by `cfd`:
 
 `cfd switch current` reads local `activeSwitch` config. When active, JSON includes `current` for the running temporary timer and `returnsTo` for the stored timer fields that will be resumed. Text output renders matching `current:` and `returnsTo:` sections.
 
+`GET /workspaces/{workspaceId}/user/{userId}/time-entries` is paginated with endpoint-specific `page` and `page-size` query parameters. Complete-list commands (`entry list`, `today`, `status` summaries, `entry text list`, and timeline range loads) must load all pages before sorting or aggregating. Recent-entry flows such as `timer resume` load only a large first page.
+
 `entry list` and `today` are Entry timeline outputs. They sort by `timeInterval.start` ascending by default, so the newest entry appears last. Both accept `--sort asc|desc`; the selected order applies to text, columns, JSON, and raw output.
 
 ## Config Module

@@ -17,7 +17,14 @@ pub fn detect<T: HttpTransport>(
     end: Option<&str>,
     exclude_id: Option<&str>,
 ) -> Result<Option<OverlapWarning>, CfdError> {
-    let entries = client.list_time_entries(workspace_id, user_id, &EntryFilters::default())?;
+    let filters = end
+        .map(|end| EntryFilters {
+            start: Some(start.to_owned()),
+            end: Some(end.to_owned()),
+            ..EntryFilters::default()
+        })
+        .unwrap_or_default();
+    let entries = client.list_all_time_entries(workspace_id, user_id, &filters)?;
     let overlapping_ids = detect_in(&entries, start, end, exclude_id)?;
     Ok((!overlapping_ids.is_empty()).then_some(OverlapWarning { overlapping_ids }))
 }

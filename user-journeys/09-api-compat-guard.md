@@ -14,13 +14,14 @@ Guard against drift in the Clockify API integration points that matter most for 
 1. `whoami` still works against the expected user endpoint
 2. `workspace list` still maps to the documented workspace endpoint
 3. `task create` still accepts the documented request shape
-4. `entry list` still uses documented query parameter names
+4. `entry list` still uses documented query parameter names, including `page` and `page-size` for paginated time-entry reads
 5. `entry update` may omit `--start` at the CLI, but still sends a valid `start` in the Clockify `PUT` payload by loading the existing entry first
 6. `timer stop` still works through the documented stop endpoint
 
 ## Expected Results
 
 - No undocumented request or response assumptions are required
+- Time-entry list reads do not silently stop at Clockify's default first page
 - Any API drift is detected before broader feature work proceeds
 
 ## Cleanup

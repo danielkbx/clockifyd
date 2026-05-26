@@ -34,7 +34,7 @@ pub fn execute<T: HttpTransport>(
     };
     let user = client.get_current_user()?;
     let entries = sort_entries(
-        client.list_time_entries(workspace_id, &user.id, &filters)?,
+        client.list_all_time_entries(workspace_id, &user.id, &filters)?,
         sort,
     )?;
 

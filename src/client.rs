@@ -10,6 +10,7 @@ use crate::types::{Client, EntryFilters, Project, Tag, Task, TimeEntry, User, Wo
 const BASE_URL: &str = "https://api.clockify.me/api/v1";
 const RESPONSE_BODY_LIMIT: u64 = 16 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const TIME_ENTRY_PAGE_SIZE: usize = 5000;
 
 pub trait HttpTransport {
     fn get(&self, url: &str, api_key: &str) -> Result<String, CfdError>;
@@ -205,11 +206,67 @@ impl<T: HttpTransport> ClockifyClient<T> {
         user_id: &str,
         filters: &EntryFilters,
     ) -> Result<Vec<TimeEntry>, CfdError> {
+        self.list_time_entries_page(workspace_id, user_id, filters, None, None)
+    }
+
+    pub fn list_time_entries_page(
+        &self,
+        workspace_id: &str,
+        user_id: &str,
+        filters: &EntryFilters,
+        page: Option<usize>,
+        page_size: Option<usize>,
+    ) -> Result<Vec<TimeEntry>, CfdError> {
         let path = format!(
             "/workspaces/{workspace_id}/user/{user_id}/time-entries{}",
-            entry_query_string(filters)
+            entry_query_string(filters, page, page_size)
         );
         self.get_json(&path)
+    }
+
+    pub fn list_all_time_entries(
+        &self,
+        workspace_id: &str,
+        user_id: &str,
+        filters: &EntryFilters,
+    ) -> Result<Vec<TimeEntry>, CfdError> {
+        let mut all_entries = Vec::new();
+        let mut page = 1;
+
+        loop {
+            let entries = self.list_time_entries_page(
+                workspace_id,
+                user_id,
+                filters,
+                Some(page),
+                Some(TIME_ENTRY_PAGE_SIZE),
+            )?;
+            let is_last_page = entries.len() < TIME_ENTRY_PAGE_SIZE;
+            all_entries.extend(entries);
+
+            if is_last_page {
+                break;
+            }
+
+            page += 1;
+        }
+
+        Ok(all_entries)
+    }
+
+    pub fn list_recent_time_entries(
+        &self,
+        workspace_id: &str,
+        user_id: &str,
+        filters: &EntryFilters,
+    ) -> Result<Vec<TimeEntry>, CfdError> {
+        self.list_time_entries_page(
+            workspace_id,
+            user_id,
+            filters,
+            Some(1),
+            Some(TIME_ENTRY_PAGE_SIZE),
+        )
     }
 
     pub fn get_time_entry(&self, workspace_id: &str, id: &str) -> Result<TimeEntry, CfdError> {
@@ -319,7 +376,11 @@ impl<T: HttpTransport> ClockifyClient<T> {
     }
 }
 
-fn entry_query_string(filters: &EntryFilters) -> String {
+fn entry_query_string(
+    filters: &EntryFilters,
+    page: Option<usize>,
+    page_size: Option<usize>,
+) -> String {
     let mut pairs = Vec::new();
 
     if let Some(start) = &filters.start {
@@ -339,6 +400,12 @@ fn entry_query_string(filters: &EntryFilters) -> String {
     }
     for tag in &filters.tags {
         pairs.push(format!("tags={}", urlencoding::encode(tag)));
+    }
+    if let Some(page) = page {
+        pairs.push(format!("page={page}"));
+    }
+    if let Some(page_size) = page_size {
+        pairs.push(format!("page-size={page_size}"));
     }
 
     if pairs.is_empty() {
@@ -400,6 +467,11 @@ mod tests {
         response: MockResponse,
     }
 
+    struct SequenceTransport {
+        requests: RefCell<Vec<RecordedRequest>>,
+        responses: RefCell<Vec<String>>,
+    }
+
     impl MockTransport {
         fn success(body: &str) -> Self {
             Self {
@@ -417,6 +489,19 @@ mod tests {
 
         fn request(&self) -> RecordedRequest {
             self.last_request.borrow().clone().unwrap()
+        }
+    }
+
+    impl SequenceTransport {
+        fn new(responses: Vec<String>) -> Self {
+            Self {
+                requests: RefCell::new(Vec::new()),
+                responses: RefCell::new(responses),
+            }
+        }
+
+        fn requests(&self) -> Vec<RecordedRequest> {
+            self.requests.borrow().clone()
         }
     }
 
@@ -559,6 +644,34 @@ mod tests {
                     Err(CfdError::transport(error.to_string()))
                 }
             }
+        }
+    }
+
+    impl HttpTransport for SequenceTransport {
+        fn get(&self, url: &str, api_key: &str) -> Result<String, CfdError> {
+            self.requests.borrow_mut().push(RecordedRequest {
+                method: "GET".into(),
+                url: url.to_owned(),
+                api_key: api_key.to_owned(),
+                body: None,
+            });
+            Ok(self.responses.borrow_mut().remove(0))
+        }
+
+        fn post(&self, _url: &str, _api_key: &str, _body: &str) -> Result<String, CfdError> {
+            panic!("unexpected POST")
+        }
+
+        fn put(&self, _url: &str, _api_key: &str, _body: &str) -> Result<String, CfdError> {
+            panic!("unexpected PUT")
+        }
+
+        fn patch(&self, _url: &str, _api_key: &str, _body: &str) -> Result<String, CfdError> {
+            panic!("unexpected PATCH")
+        }
+
+        fn delete(&self, _url: &str, _api_key: &str) -> Result<(), CfdError> {
+            panic!("unexpected DELETE")
         }
     }
 
@@ -766,6 +879,60 @@ mod tests {
     }
 
     #[test]
+    fn list_all_time_entries_requests_pages_until_short_page() {
+        let first_page = time_entries_json(0, TIME_ENTRY_PAGE_SIZE);
+        let second_page = time_entries_json(TIME_ENTRY_PAGE_SIZE, 2);
+        let transport = SequenceTransport::new(vec![first_page, second_page]);
+        let client = ClockifyClient::with_base_url(
+            "secret-key".into(),
+            "https://example.test/api/v1".into(),
+            transport,
+        );
+        let filters = EntryFilters {
+            start: Some("2026-04-23T09:00:00+00:00".into()),
+            end: Some("2026-04-23T10:00:00+00:00".into()),
+            project: Some("p1".into()),
+            ..EntryFilters::default()
+        };
+
+        let entries = client.list_all_time_entries("w1", "u1", &filters).unwrap();
+        let requests = client.transport.requests();
+
+        assert_eq!(entries.len(), TIME_ENTRY_PAGE_SIZE + 2);
+        assert_eq!(entries.first().unwrap().id, "e0");
+        assert_eq!(entries.last().unwrap().id, "e5001");
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].url.contains("page=1"));
+        assert!(requests[0].url.contains("page-size=5000"));
+        assert!(requests[0].url.contains("project=p1"));
+        assert!(requests[0]
+            .url
+            .contains("start=2026-04-23T09%3A00%3A00%2B00%3A00"));
+        assert!(requests[1].url.contains("page=2"));
+        assert!(requests[1].url.contains("page-size=5000"));
+    }
+
+    #[test]
+    fn list_recent_time_entries_requests_only_first_large_page() {
+        let transport = SequenceTransport::new(vec![time_entries_json(0, 2)]);
+        let client = ClockifyClient::with_base_url(
+            "secret-key".into(),
+            "https://example.test/api/v1".into(),
+            transport,
+        );
+
+        let entries = client
+            .list_recent_time_entries("w1", "u1", &EntryFilters::default())
+            .unwrap();
+        let requests = client.transport.requests();
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].url.contains("page=1"));
+        assert!(requests[0].url.contains("page-size=5000"));
+    }
+
+    #[test]
     fn transport_errors_are_propagated() {
         let client = ClockifyClient::new(
             "secret-key".into(),
@@ -815,5 +982,16 @@ mod tests {
         let request = client.transport.request();
 
         assert_eq!(request.url, "http://127.0.0.1:12345/api/v1/workspaces/w1");
+    }
+
+    fn time_entries_json(start_id: usize, count: usize) -> String {
+        let entries = (start_id..start_id + count)
+            .map(|id| {
+                format!(
+                    r#"{{"id":"e{id}","workspaceId":"w1","userId":"u1","description":"Entry {id}","timeInterval":{{"start":"2026-04-23T09:00:00Z"}}}}"#
+                )
+            })
+            .collect::<Vec<_>>();
+        format!("[{}]", entries.join(","))
     }
 }

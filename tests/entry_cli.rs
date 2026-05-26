@@ -4,6 +4,19 @@ use std::fs;
 
 use support::{bin, stderr, stdout, MockResponse, TestServer};
 
+fn time_entries_json(start_id: usize, count: usize) -> String {
+    let entries = (start_id..start_id + count)
+        .map(|id| {
+            format!(
+                r#"{{"id":"e{id}","workspaceId":"w1","userId":"u1","description":"Entry {id}","timeInterval":{{"start":"2026-04-23T{:02}:00:00Z","end":"2026-04-23T{:02}:30:00Z","duration":"PT30M"}}}}"#,
+                id % 24,
+                id % 24
+            )
+        })
+        .collect::<Vec<_>>();
+    format!("[{}]", entries.join(","))
+}
+
 #[test]
 fn help_entry_works() {
     let output = bin().args(["help", "entry"]).output().unwrap();
@@ -360,6 +373,74 @@ fn entry_list_json_uses_selected_sort() {
 }
 
 #[test]
+fn entry_list_json_loads_more_than_default_clockify_page_size() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok(&time_entries_json(0, 51)),
+    ]);
+
+    let output = bin()
+        .args([
+            "entry",
+            "list",
+            "--start",
+            "today",
+            "--end",
+            "today",
+            "--project",
+            "p1",
+            "--format",
+            "json",
+        ])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let value: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert_eq!(value.as_array().unwrap().len(), 51);
+
+    let requests = server.requests();
+    assert!(requests[1].path.contains("project=p1"));
+    assert!(requests[1].path.contains("page=1"));
+    assert!(requests[1].path.contains("page-size=5000"));
+}
+
+#[test]
+fn entry_list_columns_load_more_than_default_clockify_page_size() {
+    let server = TestServer::spawn(vec![
+        MockResponse::ok(r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#),
+        MockResponse::ok(&time_entries_json(0, 51)),
+    ]);
+
+    let output = bin()
+        .args([
+            "entry",
+            "list",
+            "--start",
+            "today",
+            "--end",
+            "today",
+            "--columns",
+            "id",
+            "--sort",
+            "asc",
+        ])
+        .env("CLOCKIFY_API_KEY", "secret")
+        .env("CFD_WORKSPACE", "w1")
+        .env("CFD_BASE_URL", server.base_url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let stdout = stdout(&output);
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 51);
+}
+
+#[test]
 fn entry_list_rejects_invalid_sort() {
     let output = bin()
         .args(["entry", "list", "--sort", "newest"])
@@ -579,10 +660,13 @@ fn entry_update_excludes_its_own_id_from_overlap_check() {
 
     let requests = server.requests();
     assert_eq!(requests[1].path, "/api/v1/workspaces/w1/time-entries/e1");
-    assert_eq!(
-        requests[2].path,
-        "/api/v1/workspaces/w1/user/u1/time-entries"
-    );
+    assert!(requests[2]
+        .path
+        .starts_with("/api/v1/workspaces/w1/user/u1/time-entries?"));
+    assert!(requests[2].path.contains("start=2026-04-23T09"));
+    assert!(requests[2].path.contains("end=2026-04-23T10"));
+    assert!(requests[2].path.contains("page=1"));
+    assert!(requests[2].path.contains("page-size=5000"));
     assert_eq!(requests[3].path, "/api/v1/workspaces/w1/time-entries/e1");
     assert_eq!(
         requests[3].body,
@@ -616,10 +700,13 @@ fn entry_update_end_only_uses_existing_start_and_preserves_fields() {
 
     let requests = server.requests();
     assert_eq!(requests[1].path, "/api/v1/workspaces/w1/time-entries/e1");
-    assert_eq!(
-        requests[2].path,
-        "/api/v1/workspaces/w1/user/u1/time-entries"
-    );
+    assert!(requests[2]
+        .path
+        .starts_with("/api/v1/workspaces/w1/user/u1/time-entries?"));
+    assert!(requests[2].path.contains("start=2026-04-23T09"));
+    assert!(requests[2].path.contains("end=2026-04-23T10"));
+    assert!(requests[2].path.contains("page=1"));
+    assert!(requests[2].path.contains("page-size=5000"));
     assert_eq!(requests[3].path, "/api/v1/workspaces/w1/time-entries/e1");
     assert_eq!(
         requests[3].body,

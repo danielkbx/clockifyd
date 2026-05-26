@@ -67,14 +67,16 @@ fn split_entry_updates_original_and_creates_copy_with_text_output() {
 
     let requests = server.requests();
     assert_eq!(requests[1].path, "/api/v1/workspaces/w1/time-entries/e1");
-    assert_eq!(
-        requests[2].path,
-        "/api/v1/workspaces/w1/user/u1/time-entries"
-    );
-    assert_eq!(
-        requests[3].path,
-        "/api/v1/workspaces/w1/user/u1/time-entries"
-    );
+    assert!(requests[2]
+        .path
+        .starts_with("/api/v1/workspaces/w1/user/u1/time-entries?"));
+    assert!(requests[2].path.contains("page=1"));
+    assert!(requests[2].path.contains("page-size=5000"));
+    assert!(requests[3]
+        .path
+        .starts_with("/api/v1/workspaces/w1/user/u1/time-entries?"));
+    assert!(requests[3].path.contains("page=1"));
+    assert!(requests[3].path.contains("page-size=5000"));
     assert_eq!(requests[4].method, "PUT");
     assert_eq!(requests[5].method, "POST");
     assert_eq!(

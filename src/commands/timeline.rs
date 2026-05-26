@@ -1489,7 +1489,7 @@ fn fetch_range<T: HttpTransport>(
         ..EntryFilters::default()
     };
     let user = client.get_current_user()?;
-    let entries = client.list_time_entries(workspace_id, &user.id, &filters)?;
+    let entries = client.list_all_time_entries(workspace_id, &user.id, &filters)?;
     let project_names = load_project_names(client, workspace_id, &entries)?;
 
     let mut days = loaded_empty_days(start_date, day_count);

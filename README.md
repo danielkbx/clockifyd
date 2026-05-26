@@ -303,7 +303,7 @@ For most commands, values such as `-15m` are relative to the current time. For `
 
 Use `now-5m` when updating an entry and you mean five minutes before now instead of five minutes before the stored end.
 
-`today` and `yesterday` use your local timezone. `entry list` sorts oldest first by default; pass `--sort desc` to show newest entries first. Create and update commands print only the entry ID. Delete prompts unless `-y` is passed.
+`today` and `yesterday` use your local timezone. `entry list` loads paginated Clockify results automatically and sorts oldest first by default; pass `--sort desc` to show newest entries first. Create and update commands print only the entry ID. Delete prompts unless `-y` is passed.
 
 ### Today Summary
 
@@ -323,7 +323,7 @@ Use `--format json` for scriptable output. Use `entry list --start today --end t
 cfd timeline
 ```
 
-`cfd timeline` opens an interactive ASCII view of your time entries, grouped by day. Use it when you want to inspect and adjust your tracked time visually in the terminal.
+`cfd timeline` opens an interactive ASCII view of your time entries, grouped by day. It loads paginated Clockify results for visible date ranges automatically. Use it when you want to inspect and adjust your tracked time visually in the terminal.
 
 `cfd timeline` requires an interactive terminal and does not support `--format` or `--columns`. Use `cfd today` or `cfd entry list` for scriptable output.
 
@@ -337,7 +337,7 @@ cfd status --format json
 
 `cfd status` shows the current timer, a summary for today, and a summary for the current week. If a temporary switch is active, it also shows which timer will be resumed.
 
-The week starts on Monday by default. Use `--week-start sunday` for a Sunday-to-Sunday week. Running entries count toward the displayed totals.
+The week starts on Monday by default. Use `--week-start sunday` for a Sunday-to-Sunday week. Running entries count toward the displayed totals. The today and week summaries load paginated Clockify results automatically.
 
 Use `--format json` for scriptable status output. `--columns` is not supported by `status`.
 
