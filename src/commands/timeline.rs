@@ -545,6 +545,10 @@ fn execute_timeline_action<T: HttpTransport>(
             let Some(entry) = selected_loaded_entry(state).cloned() else {
                 return Ok(());
             };
+            if !entry.segment_is_full_entry {
+                state.set_message("Cross-midnight segment is read-only in timeline.");
+                return Ok(());
+            }
             if entry.running {
                 state.set_message("Cannot split the running timer entry here.");
                 return Ok(());
@@ -573,6 +577,10 @@ fn execute_timeline_action<T: HttpTransport>(
             let Some(entry) = selected_loaded_entry(state).cloned() else {
                 return Ok(());
             };
+            if !entry.segment_is_full_entry {
+                state.set_message("Cross-midnight segment is read-only in timeline.");
+                return Ok(());
+            }
             state.set_confirmation(
                 format!("Delete entry {}? [Y/n]", entry.id),
                 TimelineAction::DeleteEntry { entry_id: entry.id },
@@ -1052,6 +1060,9 @@ impl TimelineState {
         let Some(entry) = entry_at_cursor(self).cloned() else {
             return false;
         };
+        if !entry.segment_is_full_entry {
+            return false;
+        }
         if entry.running && mode != EditMode::Start {
             return false;
         }
@@ -1219,6 +1230,9 @@ fn edit_action_available(
     mode: EditMode,
     step: i64,
 ) -> bool {
+    if !entry.segment_is_full_entry {
+        return false;
+    }
     if entry.running && mode != EditMode::Start {
         return false;
     }
@@ -1305,6 +1319,10 @@ struct EntryView {
     start_minute: i64,
     end_minute: i64,
     running: bool,
+    actual_start: DateTime<Utc>,
+    actual_end: Option<DateTime<Utc>>,
+    segment_date: NaiveDate,
+    segment_is_full_entry: bool,
 }
 
 struct Loader {
@@ -1480,7 +1498,8 @@ fn fetch_range<T: HttpTransport>(
     let day_count = day_count.max(1);
     let range_start_local = local_at(start_date, 0, 0);
     let range_end_local = range_start_local + Duration::days(day_count as i64);
-    let range_start_utc = range_start_local.with_timezone(&Utc);
+    let query_start_local = range_start_local - Duration::days(1);
+    let range_start_utc = query_start_local.with_timezone(&Utc);
     let range_end_utc = range_end_local.with_timezone(&Utc);
 
     let filters = EntryFilters {
@@ -1494,20 +1513,72 @@ fn fetch_range<T: HttpTransport>(
 
     let mut days = loaded_empty_days(start_date, day_count);
     for entry in &entries {
-        let start = parse_rfc3339(&entry.time_interval.start)?;
-        let bucket_date = start.with_timezone(&Local).date_naive();
-        let bucket_offset = (bucket_date - start_date).num_days();
-        if !(0..day_count as i64).contains(&bucket_offset) {
-            continue;
-        }
-        let bucket_idx = bucket_offset as usize;
-        let day = &days[bucket_idx];
-        if let Some(view) = entry_view_for_day(entry, day.date, now, &project_names)? {
+        for (bucket_idx, view) in
+            entry_views_for_range(entry, start_date, day_count, now, &project_names)?
+        {
             days[bucket_idx].entries.push(view);
         }
     }
     finalize_days(&mut days);
     Ok(days)
+}
+
+fn entry_views_for_range(
+    entry: &TimeEntry,
+    range_start: NaiveDate,
+    day_count: usize,
+    now: DateTime<Utc>,
+    project_names: &BTreeMap<String, String>,
+) -> Result<Vec<(usize, EntryView)>, CfdError> {
+    let start = parse_rfc3339(&entry.time_interval.start)?;
+    let (display_end, actual_end, running) = match entry.time_interval.end.as_deref() {
+        Some(value) => {
+            let end = parse_rfc3339(value)?;
+            (end, Some(end), false)
+        }
+        None => (now, None, true),
+    };
+    let mut views = Vec::new();
+    for offset in 0..day_count {
+        let date = range_start + Duration::days(offset as i64);
+        let day_start_utc = local_at(date, 0, 0).with_timezone(&Utc);
+        let day_end_utc = local_at(date + Duration::days(1), 0, 0).with_timezone(&Utc);
+        if !(start < day_end_utc && day_start_utc < display_end) {
+            continue;
+        }
+
+        let start_clamped = start.max(day_start_utc);
+        let end_clamped = display_end.min(day_end_utc).max(start_clamped);
+        let start_minute = (start_clamped - day_start_utc)
+            .num_minutes()
+            .clamp(0, 24 * 60);
+        let end_minute = (end_clamped - day_start_utc)
+            .num_minutes()
+            .clamp(0, 24 * 60);
+        let segment_is_full_entry = start >= day_start_utc && display_end <= day_end_utc;
+        views.push((
+            offset,
+            EntryView {
+                id: entry.id.clone(),
+                description: entry.description.clone(),
+                project_id: entry.project_id.clone(),
+                project_name: entry
+                    .project_id
+                    .as_deref()
+                    .and_then(|id| project_names.get(id).cloned()),
+                task_id: entry.task_id.clone(),
+                tag_ids: entry.tag_ids.clone(),
+                start_minute,
+                end_minute,
+                running,
+                actual_start: start,
+                actual_end,
+                segment_date: date,
+                segment_is_full_entry,
+            },
+        ));
+    }
+    Ok(views)
 }
 
 fn entry_view_for_day(
@@ -1516,38 +1587,10 @@ fn entry_view_for_day(
     now: DateTime<Utc>,
     project_names: &BTreeMap<String, String>,
 ) -> Result<Option<EntryView>, CfdError> {
-    let start = parse_rfc3339(&entry.time_interval.start)?;
-    let (end, running) = match entry.time_interval.end.as_deref() {
-        Some(value) => (parse_rfc3339(value)?, false),
-        None => (now, true),
-    };
-    if start.with_timezone(&Local).date_naive() != date {
-        return Ok(None);
-    }
-    let day_start_utc = local_at(date, 0, 0).with_timezone(&Utc);
-    let day_end_utc = day_start_utc + Duration::days(1);
-    let start_clamped = start.max(day_start_utc);
-    let end_clamped = end.min(day_end_utc).max(start_clamped);
-    let start_minute = (start_clamped - day_start_utc)
-        .num_minutes()
-        .clamp(0, 24 * 60);
-    let end_minute = (end_clamped - day_start_utc)
-        .num_minutes()
-        .clamp(0, 24 * 60);
-    Ok(Some(EntryView {
-        id: entry.id.clone(),
-        description: entry.description.clone(),
-        project_id: entry.project_id.clone(),
-        project_name: entry
-            .project_id
-            .as_deref()
-            .and_then(|id| project_names.get(id).cloned()),
-        task_id: entry.task_id.clone(),
-        tag_ids: entry.tag_ids.clone(),
-        start_minute,
-        end_minute,
-        running,
-    }))
+    Ok(entry_views_for_range(entry, date, 1, now, project_names)?
+        .into_iter()
+        .next()
+        .map(|(_, view)| view))
 }
 
 fn loading_days(start: NaiveDate, count: usize) -> Vec<DayView> {
@@ -2169,6 +2212,16 @@ fn raw_entry_shortcuts(state: &TimelineState, step: i64) -> Vec<ShortcutSegment>
     }
 
     let mut segments = Vec::new();
+    if !entry.segment_is_full_entry {
+        if !state.has_running_timer() && entry.project_id.is_some() {
+            segments.push(ShortcutSegment {
+                key: "n",
+                label: "start",
+                action: Action::StartTimerFromCursorEntry,
+            });
+        }
+        return segments;
+    }
     if entry.running {
         if edit_action_available(state, entry, EditMode::Start, step) {
             segments.push(ShortcutSegment {
@@ -2223,6 +2276,9 @@ fn raw_entry_shortcuts(state: &TimelineState, step: i64) -> Vec<ShortcutSegment>
 }
 
 fn entry_can_split_at_cursor(entry: &EntryView, cursor_minute: i64, step: i64) -> bool {
+    if !entry.segment_is_full_entry {
+        return false;
+    }
     let step = step.max(1);
     cursor_minute >= entry.start_minute + step && cursor_minute <= entry.end_minute - step
 }
@@ -2644,12 +2700,24 @@ fn render_legend(state: &TimelineState, cols: usize) -> Vec<String> {
         Some(entry) => {
             let (display_start, display_end) = entry_display_interval(state, entry);
             let duration_minutes = (display_end - display_start).max(0);
-            let time_label = format!(
+            let mut time_label = format!(
                 "{}–{}{}",
                 minute_to_label(display_start),
                 minute_to_label(display_end),
                 if entry.running { " (running)" } else { "" }
             );
+            if !entry.segment_is_full_entry {
+                let full_start = entry
+                    .actual_start
+                    .with_timezone(&Local)
+                    .format("%m-%d %H:%M");
+                let full_end = entry
+                    .actual_end
+                    .unwrap_or(state.now)
+                    .with_timezone(&Local)
+                    .format("%m-%d %H:%M");
+                time_label = format!("{time_label} of {full_start}–{full_end}");
+            }
             let duration_label = format_duration_minutes(duration_minutes);
             let project = entry.project_name.clone().unwrap_or_else(|| "—".into());
             let task = entry.task_id.clone().unwrap_or_else(|| "—".into());
@@ -2708,6 +2776,9 @@ fn entry_display_interval_for_day(
     date: NaiveDate,
     entry: &EntryView,
 ) -> (i64, i64) {
+    if entry.segment_date != date {
+        return (entry.start_minute, entry.end_minute);
+    }
     if let Some(edit) = &state.edit {
         if edit.date == date && edit.entry_id == entry.id {
             return (
@@ -2869,6 +2940,9 @@ mod tests {
     }
 
     fn view(id: &str, start: i64, end: i64) -> EntryView {
+        let date = NaiveDate::from_ymd_opt(2026, 5, 7).unwrap();
+        let actual_start = minute_datetime(date, start);
+        let actual_end = minute_datetime(date, end);
         EntryView {
             id: id.into(),
             description: "desc".into(),
@@ -2879,13 +2953,22 @@ mod tests {
             start_minute: start,
             end_minute: end,
             running: false,
+            actual_start,
+            actual_end: Some(actual_end),
+            segment_date: date,
+            segment_is_full_entry: true,
         }
     }
 
     fn running_view(id: &str, start: i64, now: i64) -> EntryView {
         let mut entry = view(id, start, now);
         entry.running = true;
+        entry.actual_end = None;
         entry
+    }
+
+    fn minute_datetime(date: NaiveDate, minute: i64) -> DateTime<Utc> {
+        (local_at(date, 0, 0) + Duration::minutes(minute)).with_timezone(&Utc)
     }
 
     fn set_now(state: &mut TimelineState, hour: u32, minute: u32) {
@@ -2910,6 +2993,54 @@ mod tests {
     impl HttpTransport for NoopTransport {
         fn get(&self, _url: &str, _api_key: &str) -> Result<String, CfdError> {
             Err(CfdError::message("unexpected get"))
+        }
+
+        fn post(&self, _url: &str, _api_key: &str, _body: &str) -> Result<String, CfdError> {
+            Err(CfdError::message("unexpected post"))
+        }
+
+        fn put(&self, _url: &str, _api_key: &str, _body: &str) -> Result<String, CfdError> {
+            Err(CfdError::message("unexpected put"))
+        }
+
+        fn patch(&self, _url: &str, _api_key: &str, _body: &str) -> Result<String, CfdError> {
+            Err(CfdError::message("unexpected patch"))
+        }
+
+        fn delete(&self, _url: &str, _api_key: &str) -> Result<(), CfdError> {
+            Err(CfdError::message("unexpected delete"))
+        }
+    }
+
+    #[derive(Clone)]
+    struct QueueTransport {
+        responses: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<String>>>,
+        requests: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl QueueTransport {
+        fn new(responses: Vec<&str>) -> Self {
+            Self {
+                responses: std::sync::Arc::new(std::sync::Mutex::new(
+                    responses.into_iter().map(str::to_owned).collect(),
+                )),
+                requests: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            }
+        }
+
+        fn requests(&self) -> Vec<String> {
+            self.requests.lock().unwrap().clone()
+        }
+    }
+
+    impl HttpTransport for QueueTransport {
+        fn get(&self, url: &str, _api_key: &str) -> Result<String, CfdError> {
+            self.requests.lock().unwrap().push(url.to_owned());
+            self.responses
+                .lock()
+                .unwrap()
+                .pop_front()
+                .ok_or_else(|| CfdError::message("unexpected get"))
         }
 
         fn post(&self, _url: &str, _api_key: &str, _body: &str) -> Result<String, CfdError> {
@@ -3034,6 +3165,159 @@ mod tests {
 
         assert_eq!(view.project_id.as_deref(), Some("p1"));
         assert_eq!(view.project_name.as_deref(), Some("Project One"));
+        assert!(view.segment_is_full_entry);
+    }
+
+    #[test]
+    fn entry_views_for_range_splits_cross_midnight_entry() {
+        let date = NaiveDate::from_ymd_opt(2026, 5, 7).unwrap();
+        let entry = TimeEntry {
+            id: "overnight".into(),
+            workspace_id: "w1".into(),
+            user_id: Some("u1".into()),
+            project_id: Some("p1".into()),
+            task_id: Some("t1".into()),
+            tag_ids: vec!["tag1".into()],
+            description: "Overnight".into(),
+            time_interval: TimeInterval {
+                start: local_at(date, 23, 30).to_rfc3339(),
+                end: Some(local_at(date + Duration::days(1), 0, 30).to_rfc3339()),
+                duration: None,
+            },
+        };
+        let projects = BTreeMap::from([("p1".into(), "Project One".into())]);
+
+        let views = entry_views_for_range(&entry, date, 2, Utc::now(), &projects).unwrap();
+
+        assert_eq!(views.len(), 2);
+        assert_eq!(views[0].0, 0);
+        assert_eq!(views[0].1.id, "overnight");
+        assert_eq!(views[0].1.project_name.as_deref(), Some("Project One"));
+        assert_eq!(views[0].1.task_id.as_deref(), Some("t1"));
+        assert_eq!(views[0].1.tag_ids, vec!["tag1"]);
+        assert_eq!(views[0].1.start_minute, 23 * 60 + 30);
+        assert_eq!(views[0].1.end_minute, 24 * 60);
+        assert!(!views[0].1.segment_is_full_entry);
+
+        assert_eq!(views[1].0, 1);
+        assert_eq!(views[1].1.id, "overnight");
+        assert_eq!(views[1].1.start_minute, 0);
+        assert_eq!(views[1].1.end_minute, 30);
+        assert!(!views[1].1.segment_is_full_entry);
+    }
+
+    #[test]
+    fn fetch_range_queries_previous_day_padding() {
+        let date = NaiveDate::from_ymd_opt(2026, 5, 7).unwrap();
+        let transport = QueueTransport::new(vec![
+            r#"{"id":"u1","name":"Ada","email":"ada@example.com"}"#,
+            "[]",
+        ]);
+        let client = ClockifyClient::new("secret".into(), transport.clone());
+
+        let days = fetch_range(&client, "w1", date, 1, Utc::now()).unwrap();
+        let requests = transport.requests();
+        let expected_start = (local_at(date, 0, 0) - Duration::days(1))
+            .with_timezone(&Utc)
+            .to_rfc3339();
+
+        assert_eq!(days.len(), 1);
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1].contains(&format!("start={}", urlencoding::encode(&expected_start))));
+    }
+
+    #[test]
+    fn cross_midnight_segments_contribute_to_each_day_total() {
+        let date = NaiveDate::from_ymd_opt(2026, 5, 7).unwrap();
+        let entry = TimeEntry {
+            id: "overnight".into(),
+            workspace_id: "w1".into(),
+            user_id: Some("u1".into()),
+            project_id: Some("p1".into()),
+            task_id: None,
+            tag_ids: vec![],
+            description: "Overnight".into(),
+            time_interval: TimeInterval {
+                start: local_at(date, 23, 30).to_rfc3339(),
+                end: Some(local_at(date + Duration::days(1), 0, 30).to_rfc3339()),
+                duration: None,
+            },
+        };
+        let views = entry_views_for_range(&entry, date, 2, Utc::now(), &BTreeMap::new())
+            .unwrap()
+            .into_iter()
+            .map(|(_, view)| view)
+            .collect::<Vec<_>>();
+        let state = multi_day_state(vec![
+            day_view(date, vec![views[0].clone()]),
+            day_view(date + Duration::days(1), vec![views[1].clone()]),
+        ]);
+
+        assert_eq!(day_total_label(&state, &state.days[0]), "30m");
+        assert_eq!(day_total_label(&state, &state.days[1]), "30m");
+    }
+
+    #[test]
+    fn global_bounds_extend_to_midnight_segments() {
+        let date = NaiveDate::from_ymd_opt(2026, 5, 7).unwrap();
+        let mut segment = view("overnight", 0, 30);
+        segment.segment_date = date;
+        segment.segment_is_full_entry = false;
+        segment.actual_start = minute_datetime(date - Duration::days(1), 23 * 60 + 30);
+        segment.actual_end = Some(minute_datetime(date, 30));
+        let days = vec![day_view(date, vec![segment])];
+
+        let (start, end) = compute_global_bounds(&days, Utc::now(), date);
+
+        assert_eq!(start, 0);
+        assert_eq!(end, DEFAULT_DAY_END_HOUR * 60);
+    }
+
+    #[test]
+    fn cross_midnight_segments_are_read_only() {
+        let date = NaiveDate::from_ymd_opt(2026, 5, 7).unwrap();
+        let mut segment = view("overnight", 0, 30);
+        segment.segment_date = date;
+        segment.segment_is_full_entry = false;
+        segment.actual_start = minute_datetime(date - Duration::days(1), 23 * 60 + 30);
+        segment.actual_end = Some(minute_datetime(date, 30));
+        let mut state = state_with(0, 60, vec![segment]);
+        state.cursor_minute = 10;
+
+        let keys = entry_shortcuts(&state, 120, 15)
+            .into_iter()
+            .map(|segment| segment.key)
+            .collect::<Vec<_>>();
+
+        assert_eq!(keys, vec!["n"]);
+        for key in ['m', 'a', 'e', 's', 'd'] {
+            assert_eq!(
+                handle_key(
+                    KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE),
+                    &mut state,
+                    15,
+                    120,
+                ),
+                Action::Beep
+            );
+        }
+        assert!(!state.start_edit(EditMode::Move));
+        assert!(!state.start_edit(EditMode::Start));
+        assert!(!state.start_edit(EditMode::End));
+    }
+
+    #[test]
+    fn same_day_entries_keep_existing_actions() {
+        let mut state = state_with(8 * 60, 18 * 60, vec![view("entry", 9 * 60, 10 * 60)]);
+        state.cursor_minute = 9 * 60 + 15;
+
+        assert_eq!(
+            entry_shortcuts(&state, 120, 15)
+                .into_iter()
+                .map(|segment| segment.key)
+                .collect::<Vec<_>>(),
+            vec!["m", "a", "e", "s", "n", "d"]
+        );
     }
 
     #[test]

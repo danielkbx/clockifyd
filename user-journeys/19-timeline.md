@@ -27,7 +27,13 @@ Verify that `cfd timeline` opens a responsive human-only TUI, fills the availabl
    cfd entry add --workspace <confirmed-workspace-id> --project <confirmed-project-id> --description "[CFD-TEST] timeline edit blocker" --start <today 11:00> --end <today 12:00> --no-rounding -y
    ```
 
-9. Use a normal interactive terminal at least 80 columns wide and 24 rows tall.
+9. Create one disposable overnight entry that crosses local midnight, for example:
+
+   ```bash
+   cfd entry add --workspace <confirmed-workspace-id> --project <confirmed-project-id> --description "[CFD-TEST] timeline overnight" --start <yesterday 23:30> --end <today 00:30> --no-rounding -y
+   ```
+
+10. Use a normal interactive terminal at least 80 columns wide and 24 rows tall.
 
 ## Steps
 
@@ -65,10 +71,13 @@ Verify that `cfd timeline` opens a responsive human-only TUI, fills the availabl
 32. Press `p`, answer `y`, and confirm the timer stops and the timeline reloads.
 33. Reopen the TUI with `cfd timeline --workspace <confirmed-workspace-id> -y`, start a timer with `n` if needed, press `p`, and confirm the stop confirmation is skipped.
 34. Press `r` and confirm the visible rows reload cleanly.
-35. Press `q` and confirm the terminal exits cleanly.
-36. Stop and delete any remaining `[CFD-TEST]` timer or entry created by this journey.
-37. Run `cfd timeline --workspace <confirmed-workspace-id> --format json`.
-38. Run `cfd timeline --workspace <confirmed-workspace-id> --columns id`.
+35. Move to yesterday's row and confirm the `[CFD-TEST] timeline overnight` entry appears from 23:30 to 24:00 and contributes 30 minutes to that day's total.
+36. Move to today's row and confirm the same overnight entry appears from 00:00 to 00:30 and contributes 30 minutes to today's total.
+37. Move the cursor onto either clipped overnight segment and confirm edit, split, and delete shortcuts are hidden. Confirm `n start` may still appear when no timer is running and the entry has project metadata.
+38. Press `q` and confirm the terminal exits cleanly.
+39. Stop and delete any remaining `[CFD-TEST]` timer or entry created by this journey.
+40. Run `cfd timeline --workspace <confirmed-workspace-id> --format json`.
+41. Run `cfd timeline --workspace <confirmed-workspace-id> --columns id`.
 
 ## Expected Results
 
@@ -76,11 +85,13 @@ Verify that `cfd timeline` opens a responsive human-only TUI, fills the availabl
 - The date appears on the left and the day total appears on the right.
 - Entry blocks and the vertical cursor render across both rows for each visible day.
 - The first block row shows task or description when it fits, and the second block row shows duration when it fits.
+- Entries that cross local midnight render as clipped segments on each affected day, and each day total includes only that day's segment duration.
 - The top row is a white shortcut bar with black text and no `cfd timeline` title.
 - The top row shows only currently available global shortcuts. The `p` shortcut is based on the current running timer status, not only on running entries visible in the loaded timeline rows.
 - The selected day's two timeline rows use a dark gray background across the full row, including the date and day total; the selected row's left date label, right duration total, and arrow markers remain white.
 - The bottom row appears only over entries with valid actions, uses the yellow current-entry highlight background with black text, and is blank over gaps or non-actionable entries.
 - `m` and `e` appear only for finished loaded entries when at least one cursor-step edit is valid. `a` appears for finished loaded entries and for the running timer entry when the start can move by at least one cursor step.
+- Edit, split, and delete shortcuts are hidden for clipped cross-midnight segments; starting a timer from the segment may still be available because it only copies metadata.
 - Edit mode highlights the whole entry for move, the left edge for start adjustment, and the right edge for end adjustment.
 - On a running timer entry, only `a move start` is available; moving the start keeps the timer running and leaves the right edge tracking `now`.
 - Edit mode accepts `←` / `→` for previews, `Esc` for cancel, `Enter` for save, and `Ctrl-C` for exit; unrelated keys beep.
